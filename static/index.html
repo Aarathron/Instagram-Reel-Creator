@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Video Processor</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .upload-section { border: 2px dashed #ccc; padding: 20px; text-align: center; margin-bottom: 20px; }
+        #preview { max-width: 100%; margin-top: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .success { background: #dff0d8; color: #3c763d; }
+        .error { background: #f2dede; color: #a94442; }
+    </style>
+</head>
+<body>
+    <h1>Instagram Reel Creator</h1>
+    
+    <div class="upload-section">
+        <h2>Create Reel</h2>
+        <div>
+            <label>Image (JPEG/PNG): </label>
+            <input type="file" id="imageInput" accept="image/jpeg,image/png">
+        </div>
+        <div style="margin-top: 10px;">
+            <label>Audio (MP3/WAV): </label>
+            <input type="file" id="audioInput" accept="audio/*">
+        </div>
+        <div style="margin-top: 10px;">
+            <label>Lyrics (Optional): </label>
+            <textarea id="lyricsInput" rows="4" placeholder="Enter lyrics to improve transcription accuracy"></textarea>
+        </div>
+        <button style="margin-top: 20px;" onclick="createReel()">Create Reel</button>
+        <div id="result" class="status"></div>
+    </div>
+
+    <div id="videoResult" style="display: none; margin-top: 20px;">
+        <h3>Generated Reel</h3>
+        <video id="outputVideo" controls style="max-width: 100%;"></video>
+    </div>
+
+    <script>
+        async function createReel() {
+            const imageInput = document.getElementById('imageInput');
+            const audioInput = document.getElementById('audioInput');
+            const resultDiv = document.getElementById('result');
+            
+            if (!imageInput.files[0] || !audioInput.files[0]) {
+                resultDiv.innerHTML = 'Please select both image and audio files';
+                resultDiv.className = 'status error';
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('image', imageInput.files[0]);
+            formData.append('audio', audioInput.files[0]);
+            const lyrics = document.getElementById('lyricsInput').value;
+            formData.append('lyrics', lyrics || ''); // Ensure 'lyrics' field is always present
+
+            try {
+                resultDiv.innerHTML = 'Creating reel...';
+                resultDiv.className = 'status';
+                
+                const response = await fetch('/create-video', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (response.ok) {
+                    const videoBlob = await response.blob();
+                    const videoUrl = URL.createObjectURL(videoBlob);
+                    
+                    document.getElementById('videoResult').style.display = 'block';
+                    document.getElementById('outputVideo').src = videoUrl;
+                    resultDiv.innerHTML = 'Reel created successfully!';
+                    resultDiv.className = 'status success';
+                } else {
+                const error = await response.json();
+                let errorMessage = 'Request failed'; // Default error message
+                if (error && error.detail) {
+                    errorMessage = `Error: ${error.detail}`; // Use detail if available
+                } else if (error && typeof error === 'object') {
+                    console.error("Full error object:", error); // Log full error for debugging
+                    errorMessage = 'Error details not available. Check console for more info.'; // Indicate console log
+                }
+                resultDiv.innerHTML = errorMessage;
+                    resultDiv.className = 'status error';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `Error: ${error.message}`;
+                resultDiv.className = 'status error';
+            }
+        }
+    </script>
+</body>
+</html>

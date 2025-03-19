@@ -1,0 +1,536 @@
+import os
+import logging
+import json
+import re
+import datetime
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request, Form
+from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from pydub import AudioSegment
+from moviepy import ImageClip, AudioFileClip, CompositeVideoClip
+from moviepy.video.VideoClip import TextClip
+import webvtt
+from openai import Client, OpenAIError
+
+class MaxFileSizeMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app: FastAPI, max_size: int = 100 * 1024 * 1024):
+        super().__init__(app)
+        self.max_size = max_size
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
+        if request.method == "POST":
+            if "content-length" in request.headers:
+                try:
+                    content_length = int(request.headers["content-length"])
+                    if content_length > self.max_size:
+                        return Response(
+                            status_code=413,
+                            content=f"File too large. Maximum size allowed is {self.max_size} bytes"
+                        )
+                except ValueError:
+                    pass
+        return await call_next(request)
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Set up OpenAI API key from environment variables
+openai_api_key = os.getenv("OPENAI_API_KEY")
+logger.info(f"OPENAI_API_KEY = {openai_api_key}")
+
+if not openai_api_key:
+    logger.warning("OPENAI_API_KEY environment variable is not set. Certain AI features will be disabled.")
+
+# ------------------------------------------------------------------------------
+# Helper Function: Format seconds into SRT timestamp format (HH:MM:SS,mmm)
+# ------------------------------------------------------------------------------
+def transliterate_text(text: str) -> str:
+    """Transliterate text to Latin script using OpenAI (if needed)."""
+    # If you prefer a local approach for efficiency, replace with something like:
+    # return unidecode(text)
+
+    logger.info(f"Starting transliteration: text='{text}'")
+    try:
+        client = Client()
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a professional transliterator. Convert any non-Latin text to Latin script while maintaining the original meaning. Give output only in pure latin alphabets don't use any accents etc."
+                },
+                {"role": "user", "content": text}
+            ]
+        )
+        transliterated = response.choices[0].message.content
+        logger.info(f"Transliteration successful: original='{text}', transliterated='{transliterated}'")
+        return transliterated
+    except OpenAIError as e:
+        logger.error(f"OpenAI API error during transliteration: {e}")
+        return "Transliteration failed"
+    except Exception as e:
+        logger.error(f"Error during transliteration: {e}")
+        return "Transliteration failed"
+
+def parse_time(time_str: str) -> datetime.time:
+    """Parse SRT timestamp string to datetime.time object."""
+    try:
+        # Split into hours, minutes, seconds, and milliseconds
+        time_parts = re.split(r'[:.]', time_str)
+        if len(time_parts) != 4:
+            raise ValueError("Invalid time format")
+        
+        hours = int(time_parts[0])
+        minutes = int(time_parts[1])
+        seconds = int(time_parts[2])
+        milliseconds = int(time_parts[3])
+        
+        # Create time object with milliseconds
+        return datetime.time(hours, minutes, seconds, milliseconds // 1000)
+    except Exception as e:
+        logger.error(f"Error parsing time string '{time_str}': {str(e)}")
+        return None
+
+def seconds_to_srt_timestamp(seconds: float) -> str:
+    """Convert seconds to SRT timestamp format (HH:MM:SS,mmm)."""
+    td = datetime.timedelta(seconds=seconds)
+    total_seconds = int(td.total_seconds())
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    secs = total_seconds % 60
+    millis = int((td.total_seconds() - total_seconds) * 1000)
+    # Ensure milliseconds are always three digits with leading zeros
+    millis_str = f"{millis:03d}"
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis_str}"
+
+from typing import List
+
+def optimize_subtitles_for_timing(captions: List[webvtt.Caption]) -> List[webvtt.Caption]:
+    """Optimize subtitle timing and formatting."""
+    if not captions:
+        return []
+
+    MIN_DURATION = 1.0  # Minimum subtitle duration in seconds
+    BUFFER_TIME = 0.2  # Buffer time between subtitles in seconds
+    MAX_CHARS_PER_LINE = 60  # Maximum characters per line
+
+    optimized_captions = []
+    current_caption = None
+    current_start_seconds = None
+    current_end_seconds = None
+
+    for caption in captions:
+        try:
+            logger.info(f"Before conversion: caption.start={caption.start}, caption.end={caption.end}")
+            start_time_obj = parse_time(str(caption.start))
+            end_time_obj = parse_time(str(caption.end))
+
+            if start_time_obj is None or end_time_obj is None:
+                logger.warning(f"Invalid caption time range: start={caption.start}, end={caption.end}, error=Could not parse time")
+                continue
+
+            start_seconds = (start_time_obj.hour * 3600) + (start_time_obj.minute * 60) + start_time_obj.second + (start_time_obj.microsecond / 1000000)
+            end_seconds = (end_time_obj.hour * 3600) + (end_time_obj.minute * 60) + end_time_obj.second + (end_time_obj.microsecond / 1000000)
+
+        except Exception as e:
+            logger.warning(f"Invalid caption time range: start={caption.start}, end={caption.end}, error={e}")
+            continue
+
+
+        # Skip invalid time ranges or if parsing failed
+        if end_seconds <= start_seconds or start_time_obj is None or end_time_obj is None:
+            logger.warning(f"Invalid time range: start={start_seconds}, end={end_seconds}")
+            continue
+
+        text = caption.text
+
+            
+        # Handle short captions by merging with next one
+        if current_caption:
+            duration = current_end_seconds - current_start_seconds
+            if duration < MIN_DURATION:
+                current_caption.text = f"{current_caption.text} {text}"
+                current_end_seconds = end_seconds
+                continue  # Keep accumulating
+
+            optimized_captions.append(webvtt.Caption(seconds_to_srt_timestamp(current_start_seconds), seconds_to_srt_timestamp(current_end_seconds), current_caption.text))
+            current_caption = None
+
+        if not current_caption:
+            current_caption = caption
+            current_start_seconds = start_seconds
+            current_end_seconds = end_seconds
+
+        if optimized_captions:
+            prev_end_time_obj = parse_time(str(optimized_captions[-1].end))
+            if prev_end_time_obj:
+                prev_end_seconds = (prev_end_time_obj.hour * 3600) + (prev_end_time_obj.minute * 60) + prev_end_time_obj.second + (prev_end_time_obj.microsecond / 1000000)
+                current_start_seconds = max(current_start_seconds, prev_end_seconds + BUFFER_TIME)
+            
+        # Split long text into multiple lines if needed
+        if len(text) > MAX_CHARS_PER_LINE:
+
+            words = text.split()
+            lines = []
+            current_line = ""
+            for word in words:
+                if len(current_line) + len(word) + 1 > MAX_CHARS_PER_LINE:
+                    lines.append(current_line.strip())
+                    current_line = ""
+                current_line += word + " "
+            lines.append(current_line.strip())
+            text = "\n".join(lines)
+            current_caption.text = text
+
+
+        
+    # Add the last caption if it exists
+    if current_caption:
+        optimized_captions.append(webvtt.Caption(seconds_to_srt_timestamp(current_start_seconds), seconds_to_srt_timestamp(current_end_seconds), current_caption.text))
+
+    return optimized_captions
+
+
+# ------------------------------------------------------------------------------
+# Audio Processing Functions
+# ------------------------------------------------------------------------------
+def convert_to_flac(audio_path: str) -> str:
+    """Convert audio file to FLAC format using pydub with compression."""
+    flac_path = os.path.splitext(audio_path)[0] + ".flac"
+    audio = AudioSegment.from_file(audio_path)
+
+    # Reduce quality to decrease file size
+    audio = audio.set_channels(1)  # Convert to mono
+    audio = audio.set_frame_rate(48000)  # Reduce sample rate
+
+    # Export with FLAC compression
+    audio.export(flac_path, format="flac", parameters=["-compression_level", "12"])
+    return flac_path
+
+from typing import Optional
+
+def transcribe_audio_with_openai(audio_path: str, lyrics: Optional[str] = None) -> webvtt.WebVTT:
+    """Transcribe audio using OpenAI's Whisper API."""
+    logger.info(f"Starting transcription: audio_path='{audio_path}'")
+    try:
+        client = Client()
+        prompt = f"Please transcribe the audio accurately, using the provided lyrics as reference: {lyrics}" if lyrics else "Transcribe the audio accurately."
+        response = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=open(audio_path, "rb"),
+            response_format="verbose_json",
+            prompt=prompt,
+            timestamp_granularities=['word'],
+            language='hi'
+        )
+        logger.info(f"OpenAI transcription response: {response}")
+
+        transcription_data = dict(response)
+        segments = transcription_data.get('words', [])
+        logger.info(f"Words: {segments}")
+        vtt = webvtt.WebVTT()
+        
+        all_words = []
+        for segment in segments:
+            all_words.append(dict(segment)['word'])
+        
+        transcripted_words_text = transliterate_text(",".join(all_words))  # Transliterate all words together
+        transcripted_words = transcripted_words_text.split(',')
+        
+        
+        caption_segments = []
+        current_caption = []
+        current_caption_start_time = 0
+        
+        if not segments or not transcripted_words:
+            logger.warning("No segments or transcripted words available")
+            return webvtt.WebVTT()
+            
+        word_index = 0
+        max_words = len(transcripted_words)
+        all_words = []
+        
+        # Only process segments up to the number of available words
+        for segment in segments:
+            if word_index >= max_words:
+                break
+                
+            if not segment:
+                continue
+                
+            segment_dict = dict(segment)
+            if 'start' not in segment_dict or 'end' not in segment_dict:
+                continue
+                
+            start_time = segment_dict['start']
+            end_time = segment_dict['end']
+            
+            # Get word if available, otherwise use original
+            word = transcripted_words[word_index] if word_index < max_words else segment_dict['word']
+            
+            item = {
+                "start_time": start_time,
+                "end_time": end_time,
+                "word": word,
+                "original_word": segment_dict['word']
+            }
+            all_words.append(item)
+            logger.info(f"Current Word: {item}")
+            word_index += 1
+
+        logger.info(f"Final Word List: {all_words}")
+
+        def chunk_words(all_words, words_per_chunk=3):
+            chunks = []
+            current_chunk = []
+            chunk_start_time = 0
+            for i, word_item in enumerate(all_words):
+                if i % words_per_chunk == 0:
+                    if current_chunk:
+                        chunk_end_time = all_words[i-1]['end_time']
+                        chunk_text = " ".join([item['word'] for item in current_chunk])
+                        chunks.append({'start_time': chunk_start_time, 'end_time': chunk_end_time, 'text': chunk_text})
+                    current_chunk = []
+                    chunk_start_time = word_item['start_time']
+                current_chunk.append(word_item)
+            if current_chunk:
+                chunk_end_time = all_words[-1]['end_time']
+                chunk_text = " ".join([item['word'] for item in current_chunk])
+                chunks.append({'start_time': chunk_start_time, 'end_time': chunk_end_time, 'text': chunk_text})
+            return chunks
+
+        word_chunks = chunk_words(all_words)
+        logger.info(f"Word Chunks: {word_chunks}")
+
+
+        for chunk in word_chunks:
+            try:
+                start_seconds = chunk['start_time']
+                end_seconds = chunk['end_time']
+                start_str = seconds_to_srt_timestamp(start_seconds)
+                end_str = seconds_to_srt_timestamp(end_seconds)
+                vtt_caption = webvtt.Caption(
+                    start_str,
+                    end_str,
+                    chunk['text']
+                )
+            except Exception as e:
+                logger.error(f"Error creating caption: {str(e)}")
+                continue
+            vtt.captions.append(vtt_caption)
+            logger.info(f"Subtitle created: start={seconds_to_srt_timestamp(chunk['start_time'])}, end={seconds_to_srt_timestamp(chunk['end_time'])}, text='{chunk['text']}'")
+
+        logger.info(f"Transcription completed with {len(vtt.captions)} segments")
+        return vtt
+
+    except OpenAIError as e:
+        logger.error(f"OpenAI API error during transcription: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error in transcription: {str(e)}")
+        raise
+
+# ------------------------------------------------------------------------------
+# App Initialization
+# ------------------------------------------------------------------------------
+app = FastAPI()
+
+# Configure FastAPI to handle large files
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+
+# Add middleware for compression and trusted hosts
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+
+# Increase FastAPI's internal file size limit
+from starlette.datastructures import UploadFile as StarletteUploadFile
+StarletteUploadFile.spool_max_size = 1024 * 1024 * 100  # 100MB
+
+# Mount static files directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Add our consolidated file size middleware (100 MB limit)
+app.add_middleware(MaxFileSizeMiddleware, max_size=100 * 1024 * 1024)
+
+# Store maximum file size in app state (if needed elsewhere)
+app.state.max_upload_size = 100 * 1024 * 1024  # 100 MB
+
+# ------------------------------------------------------------------------------
+# API Endpoints
+# ------------------------------------------------------------------------------
+async def save_upload_file(upload_file: UploadFile, destination: str) -> bool:
+    try:
+        CHUNK_SIZE = 1024 * 1024  # 1MB chunks
+        with open(destination, "wb") as buffer:
+            while True:
+                chunk = await upload_file.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                buffer.write(chunk)
+        return True
+    except Exception as e:
+        logger.error(f"Error saving {upload_file.filename} to {destination}: {str(e)}")
+        return False
+
+@app.post("/create-video")
+async def create_video(
+    image: UploadFile = File(..., description="Image file (JPEG/PNG)"),
+    audio: UploadFile = File(..., description="Audio file (MP3/WAV)"),
+    lyrics: Optional[str] = Form(default=None, description="Optional lyrics to improve transcription accuracy"),
+#    font_size: Optional[int] = Form(default=24, description="Font size for subtitles")
+) -> Response:
+    try:
+        logger.info("Starting create_video endpoint")
+        logger.info(f"Received image file: {image.filename}") # Log image filename
+        logger.info(f"Received audio file: {audio.filename}") # Log audio filename
+        logger.info(f"Received lyrics: {lyrics}") # Log lyrics content
+        logger.info(f"Received files - Image: {image.filename}, Audio: {audio.filename}, Lyrics: {lyrics}")
+
+        # Create output directory if it doesn't exist
+        output_dir = "output"
+        os.makedirs(output_dir, exist_ok=True)
+        logger.info(f"Created output directory: {output_dir}")
+
+        # Validate image extension
+        image_ext = os.path.splitext(image.filename)[1].lower()
+        logger.info(f"Image extension: {image_ext}")
+        if image_ext not in ['.jpg', '.jpeg', '.png']:
+            logger.error(f"Invalid image format: {image_ext}")
+            raise HTTPException(status_code=400, detail="Image must be JPEG or PNG format")
+
+        # Validate audio extension
+        audio_ext = os.path.splitext(audio.filename)[1].lower()
+        logger.info(f"Audio extension: {audio_ext}")
+        if audio_ext not in ['.mp3', '.wav', '.flac']:
+            logger.error(f"Invalid audio format: {audio_ext}")
+            raise HTTPException(status_code=400, detail="Audio must be MP3, WAV, or FLAC format")
+
+        image_path = os.path.join(output_dir, f"image{image_ext}")
+        audio_path = os.path.join(output_dir, f"audio{audio_ext}")
+
+        # Save files in chunks
+        logger.info(f"Saving image to {image_path}")
+        if not await save_upload_file(image, image_path):
+            raise Exception(f"Failed to save image file at {image_path}")
+
+        logger.info(f"Saving audio to {audio_path}")
+        if not await save_upload_file(audio, audio_path):
+            raise Exception(f"Failed to save audio file at {audio_path}")
+
+        # Load the audio clip to get its duration
+        audio_clip = AudioFileClip(audio_path)
+        duration = audio_clip.duration
+
+        # Create an ImageClip for the background
+        background_clip = ImageClip(image_path).with_duration(duration)
+
+        # Initialize empty subtitle clips list
+        subtitle_clips = []
+
+        # Generate subtitles if OpenAI API key is available
+        if openai_api_key:
+            try:
+                # Convert audio to FLAC format for Whisper API
+                logger.info("Converting audio to FLAC format")
+                flac_path = convert_to_flac(audio_path)
+
+                # Transcribe audio
+                logger.info("Starting audio transcription")
+                vtt = transcribe_audio_with_openai(flac_path, lyrics=lyrics)
+                logger.info("Creating video with subtitles")
+
+                # Create subtitle clips from transcription
+                optimized_captions = optimize_subtitles_for_timing(vtt.captions)
+
+                for caption in optimized_captions:
+                    try:
+                        start_time_obj = parse_time(str(caption.start))
+                        end_time_obj = parse_time(str(caption.end))
+                        if start_time_obj is None or end_time_obj is None:
+                            continue
+
+                        start_seconds = (start_time_obj.hour * 3600) + (start_time_obj.minute * 60) + start_time_obj.second + (start_time_obj.microsecond / 1000000)
+                        end_seconds = (end_time_obj.hour * 3600) + (end_time_obj.minute * 60) + end_time_obj.second + (end_time_obj.microsecond / 1000000)
+                        duration = end_seconds - start_seconds
+
+                        txt_clip = TextClip(font="/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",text=caption.text, font_size=65, color='yellow', bg_color=(0,0, 0, 127), size=(500,80),stroke_color='black',stroke_width=1,horizontal_align='center',  )
+                        txt_clip = txt_clip.with_start(start_seconds).with_duration(duration).with_position(("center", 0.7), relative=True)
+
+                        subtitle_clips.append(txt_clip)
+
+                        logger.info(f"Optimized Subtitle clip created: start={start_seconds}, end={end_seconds}, text='{caption.text}'")
+
+                    except Exception as e:
+                        logger.error(f"Error adding optimized subtitle clip: {str(e)}")
+                        continue
+            except Exception as e:
+                logger.warning(f"Failed to generate subtitles: {str(e)}")
+                logger.info("Continuing without subtitles")
+        else:
+            logger.info("OpenAI API key not set - creating video without subtitles")
+
+        # Combine background and subtitles
+        final_clip = CompositeVideoClip([background_clip] + subtitle_clips)
+
+        # Add audio
+        final_clip.audio = audio_clip
+
+        # Write the final video
+        output_path = os.path.join(output_dir, "output.mp4")
+        try:
+            final_clip.write_videofile(
+                output_path,
+                fps=25,
+                codec='libx264',
+                audio_codec='aac',
+                temp_audiofile=os.path.join(output_dir, "temp-audio.m4a"),
+                remove_temp=True
+            )
+            logger.info("Video creation completed successfully")
+            return FileResponse(output_path, media_type="video/mp4", filename="output.mp4")
+        except Exception as e:
+            logger.error(f"Error during video creation: {e}")
+            raise HTTPException(status_code=500, detail=f"Error creating video: {e}")
+
+    except Exception as e:
+        logger.error(f"Error in create_video: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ------------------------------------------------------------------------------
+# Entry Point
+# ------------------------------------------------------------------------------
+if __name__ == "__main__":
+    import uvicorn
+    import socket
+
+    def find_free_port(start_port=8001, max_port=8020):
+        for port in range(start_port, max_port + 1):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.bind(('0.0.0.0', port))
+                    return port
+            except OSError:
+                continue
+        raise OSError("No free ports found in range")
+
+    port = find_free_port()
+    logger.info(f"Starting server on port {port}")
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        timeout_keep_alive=120
+    )

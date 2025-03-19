@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+starlette
+pydub
+moviepy
+webvtt-py
+openai
+unidecode
+python-multipart
+requests
+requests-toolbelt
+indic-transliteration
