@@ -800,11 +800,10 @@ def transcribe_and_align_lyrics(
     
     # Get audio duration for alignment
     try:
-        audio_clip = AudioFileClip(audio_path)
-        audio_duration = audio_clip.duration
-        audio_clip.close()
+        temp_audio_clip, audio_duration = load_audio_with_fallback(audio_path)
+        temp_audio_clip.close()
         logger.info(f"✓ Audio duration: {audio_duration:.2f} seconds")
-    except Exception as e:
+    except ValueError as e:
         logger.error(f"❌ Error getting audio duration: {e}")
         raise ValueError(f"Could not determine audio duration: {str(e)}")
     
@@ -914,6 +913,41 @@ app.add_middleware(MaxFileSizeMiddleware, max_size=100 * 1024 * 1024)
 app.state.max_upload_size = 100 * 1024 * 1024  # 100 MB
 
 
+def load_audio_with_fallback(audio_path: str) -> tuple:
+    """
+    Load audio file with handling for metadata issues.
+    Always uses the original file, but gets duration from pydub if MoviePy fails.
+    Returns (audio_clip, duration)
+    """
+    try:
+        audio_clip = AudioFileClip(audio_path)
+        duration = audio_clip.duration
+        return audio_clip, duration
+    except (KeyError, AttributeError) as e:
+        logger.warning(f"⚠️ Failed to get duration from MoviePy directly: {str(e)}")
+        logger.info("Getting duration from pydub and manually setting it...")
+        
+        # Use pydub to get the duration, but still use original file
+        from pydub import AudioSegment
+        try:
+            # Load with pydub which is more robust for duration detection
+            audio_segment = AudioSegment.from_file(audio_path)
+            duration = len(audio_segment) / 1000.0  # Convert ms to seconds
+            
+            # Create AudioFileClip without relying on its duration detection
+            audio_clip = AudioFileClip(audio_path)
+            
+            # Manually set the duration since MoviePy couldn't detect it
+            audio_clip.duration = duration
+            
+            logger.info(f"✓ Successfully loaded original audio file with duration: {duration:.2f} seconds")
+            return audio_clip, duration
+            
+        except Exception as pydub_error:
+            logger.error(f"❌ Failed to get duration with pydub: {str(pydub_error)}")
+            raise ValueError(f"Audio file appears to be corrupted or has invalid metadata. Please use a different audio file or convert it to MP3 format first.")
+
+
 async def save_upload_file(upload_file: UploadFile, destination: str) -> bool:
     """
     Save an uploaded file in chunks to disk.
@@ -1008,10 +1042,12 @@ async def create_video(
 
         logger.info(f"✓ Successfully saved input files")
 
-        # 2) Load audio to get duration
-        audio_clip = AudioFileClip(audio_path)
-        duration = audio_clip.duration
-        logger.info(f"✓ Loaded audio clip, duration: {duration:.2f} seconds")
+        # 2) Load audio to get duration with error handling
+        try:
+            audio_clip, duration = load_audio_with_fallback(audio_path)
+            logger.info(f"✓ Loaded audio clip, duration: {duration:.2f} seconds")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         # 3) Create background image clip for entire audio duration
         bg_clip = ImageClip(image_path).with_duration(duration)
@@ -1027,9 +1063,8 @@ async def create_video(
         
         if alignment_mode == "even":
             # Manually evenly distribute lyrics
-            audio_clip = AudioFileClip(audio_path)
-            audio_duration = audio_clip.duration
-            audio_clip.close()
+            temp_audio_clip, audio_duration = load_audio_with_fallback(audio_path)
+            temp_audio_clip.close()
             
             lyrics_lines = preprocess_lyrics(lyrics)
             aligned_segments = align_lyrics_with_scribe(lyrics_lines, audio_duration)

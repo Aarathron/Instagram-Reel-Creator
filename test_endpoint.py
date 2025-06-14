@@ -7,7 +7,7 @@ def get_file_size(file_path):
 
 # Get file sizes
 image_path = 'static/img.png'
-audio_path = 'static/Option-1.mp3'
+audio_path = 'static/test.mp3'
 
 # Print file sizes
 image_size = os.path.getsize(image_path)
@@ -16,11 +16,20 @@ print(f"Image size: {image_size / (1024*1024):.2f} MB")
 print(f"Audio size: {audio_size / (1024*1024):.2f} MB")
 print(f"Total size: {(image_size + audio_size) / (1024*1024):.2f} MB")
 
+# Test lyrics
+test_lyrics = """Hello world
+This is a test
+Of the video creation
+With lyrics alignment"""
+
 # Create multipart encoder
 encoder = MultipartEncoder(
     fields={
         'image': ('img.png', open(image_path, 'rb'), 'image/png'),
-        'audio': ('Option-5.mp3', open(audio_path, 'rb'), 'audio/mpeg')
+        'audio': ('test.mp3', open(audio_path, 'rb'), 'audio/mpeg'),
+        'lyrics': test_lyrics,
+        'language': 'en',
+        'alignment_mode': 'even'
     }
 )
 
@@ -31,14 +40,14 @@ print(f"Payload size: {len(encoder.to_string()) / (1024*1024):.2f} MB")
 headers = {'Content-Type': encoder.content_type}
 try:
     response = requests.post(
-        'http://localhost:8001/create-video',
+        'http://localhost:8002/create-video',  # Updated port
         data=encoder,
         headers=headers,
-        timeout=30  # 30 seconds timeout
+        timeout=60  # Increased timeout for video processing
     )
     print(f"Response received with status code: {response.status_code}")
 except requests.exceptions.Timeout:
-    print("Request timed out after 30 seconds")
+    print("Request timed out after 60 seconds")
     exit(1)
 except requests.exceptions.RequestException as e:
     print(f"Request failed: {str(e)}")

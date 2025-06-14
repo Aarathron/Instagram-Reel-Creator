@@ -3,7 +3,7 @@ services:
   app:
     build: .
     ports:
-      - "8001:8001"
+      - "8002:8001"
     volumes:
       - .:/app
       - ./output:/app/output
