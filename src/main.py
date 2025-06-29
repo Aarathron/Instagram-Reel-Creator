@@ -72,6 +72,26 @@ logger = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------------------------
+# Utility: Font handling
+# ------------------------------------------------------------------------------
+def get_available_font():
+    """Get the first available font from the system"""
+    font_paths = [
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Arial.ttf",  # macOS
+        "Arial"  # fallback to system default
+    ]
+    for font_path in font_paths:
+        if os.path.exists(font_path):
+            logger.info(f"Using font: {font_path}")
+            return font_path
+    logger.warning("No specific font found, using system default: Arial")
+    return "Arial"  # system default
+
+
+# ------------------------------------------------------------------------------
 # Utility: Parse SRT/WebVTT times
 # ------------------------------------------------------------------------------
 def parse_time(time_str: str) -> datetime.time:
@@ -87,8 +107,9 @@ def parse_time(time_str: str) -> datetime.time:
         seconds = int(time_parts[2])
         milliseconds = int(time_parts[3])
         
-        # Create time object with milliseconds
-        return datetime.time(hours, minutes, seconds, milliseconds // 1000)
+        # Create time object with microseconds (milliseconds * 1000)
+        microseconds = (milliseconds % 1000) * 1000
+        return datetime.time(hours, minutes, seconds, microseconds)
     except Exception as e:
         logger.error(f"Error parsing time string '{time_str}': {str(e)}")
         return None
@@ -1016,8 +1037,11 @@ async def create_video(
             raise HTTPException(status_code=400, detail="Lyrics text is required. Please provide lyrics.")
 
         # 1) Validate & save input files
-        output_dir = "output"
+        output_dir = os.path.abspath("output")
         os.makedirs(output_dir, exist_ok=True)
+        
+        # Generate unique ID for this request to avoid file conflicts
+        request_id = str(uuid.uuid4())[:8]
 
         img_ext = os.path.splitext(image.filename)[1].lower()
         if img_ext not in [".jpg", ".jpeg", ".png"]:
@@ -1029,8 +1053,8 @@ async def create_video(
             logger.error(f"Invalid audio format: {aud_ext}")
             raise HTTPException(status_code=400, detail="Audio must be MP3, WAV, or FLAC.")
 
-        image_path = os.path.join(output_dir, f"bg_image{img_ext}")
-        audio_path = os.path.join(output_dir, f"bg_audio{aud_ext}")
+        image_path = os.path.join(output_dir, f"bg_image_{request_id}{img_ext}")
+        audio_path = os.path.join(output_dir, f"bg_audio_{request_id}{aud_ext}")
 
         if not await save_upload_file(image, image_path):
             logger.error(f"Failed to save image file: {image_path}")
@@ -1042,16 +1066,20 @@ async def create_video(
 
         logger.info(f"✓ Successfully saved input files")
 
-        # 2) Load audio to get duration with error handling
+        # List of temp files to clean up
+        temp_files = [image_path, audio_path]
+        
         try:
-            audio_clip, duration = load_audio_with_fallback(audio_path)
-            logger.info(f"✓ Loaded audio clip, duration: {duration:.2f} seconds")
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            # 2) Load audio to get duration with error handling
+            try:
+                audio_clip, duration = load_audio_with_fallback(audio_path)
+                logger.info(f"✓ Loaded audio clip, duration: {duration:.2f} seconds")
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
 
-        # 3) Create background image clip for entire audio duration
-        bg_clip = ImageClip(image_path).with_duration(duration)
-        logger.info(f"✓ Created background image clip")
+            # 3) Create background image clip for entire audio duration
+            bg_clip = ImageClip(image_path).with_duration(duration)
+            logger.info(f"✓ Created background image clip")
 
         # 4) Transcribe or align lyrics with improved word-level matching
         logger.info("Processing lyrics and audio...")
@@ -1171,9 +1199,8 @@ async def create_video(
                     
                     # Create text clip for this group of words with improved visual styling
                     txt_clip = TextClip(
-                        # Use FreeSans which has good Indic script support
-                        font="/usr/share/fonts/truetype/freefont/FreeSans.ttf",
                         text=group_text,
+                        font=get_available_font(),
                         font_size=font_size,
                         color=font_color,
                         bg_color=(0, 0, 0, 120),  # More opaque background for better readability
@@ -1192,20 +1219,38 @@ async def create_video(
         final_clip.audio = audio_clip
         logger.info(f"✓ Combined image, subtitles, and audio into final clip")
 
-        # 8) Write final video
-        output_video = os.path.join(output_dir, "output.mp4")
-        logger.info(f"Writing final video to {output_video}...")
-        final_clip.write_videofile(
-            output_video,
-            fps=25,
-            codec="libx264",
-            audio_codec="aac",
-            temp_audiofile=os.path.join(output_dir, "temp-audio.m4a"),
-            remove_temp=True
-        )
+            # 8) Write final video
+            output_video = os.path.join(output_dir, f"output_{request_id}.mp4")
+            temp_files.append(output_video)  # Add output video to cleanup list (optional)
+            logger.info(f"Writing final video to {output_video}...")
+            final_clip.write_videofile(
+                output_video,
+                fps=25,
+                codec="libx264",
+                audio_codec="aac",
+                temp_audiofile=os.path.join(output_dir, f"temp-audio_{request_id}.m4a"),
+                remove_temp=True
+            )
 
-        logger.info("✅ Video creation successful. Returning output.mp4.")
-        return FileResponse(output_video, media_type="video/mp4", filename="output.mp4")
+            logger.info("✅ Video creation successful. Returning output.mp4.")
+            return FileResponse(output_video, media_type="video/mp4", filename="output.mp4")
+            
+        finally:
+            # Cleanup temporary files
+            for temp_file in temp_files:
+                try:
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                        logger.info(f"Cleaned up temp file: {temp_file}")
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to cleanup {temp_file}: {cleanup_error}")
+            
+            # Cleanup audio clip if it exists
+            try:
+                if 'audio_clip' in locals():
+                    audio_clip.close()
+            except Exception:
+                pass
 
     except Exception as e:
         logger.error(f"❌ Error in /create-video: {str(e)}")
