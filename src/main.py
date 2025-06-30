@@ -1081,113 +1081,113 @@ async def create_video(
             bg_clip = ImageClip(image_path).with_duration(duration)
             logger.info(f"✓ Created background image clip")
 
-        # 4) Transcribe or align lyrics with improved word-level matching
-        logger.info("Processing lyrics and audio...")
-        
-        # Handle alignment mode selection
-        if alignment_mode == "elevenlabs" and not ELEVENLABS_API_KEY:
-            logger.warning("ElevenLabs alignment mode selected but API key not available. Falling back to 'auto'.")
-            alignment_mode = "auto"
-        
-        if alignment_mode == "even":
-            # Manually evenly distribute lyrics
-            temp_audio_clip, audio_duration = load_audio_with_fallback(audio_path)
-            temp_audio_clip.close()
+            # 4) Transcribe or align lyrics with improved word-level matching
+            logger.info("Processing lyrics and audio...")
             
-            lyrics_lines = preprocess_lyrics(lyrics)
-            aligned_segments = align_lyrics_with_scribe(lyrics_lines, audio_duration)
+            # Handle alignment mode selection
+            if alignment_mode == "elevenlabs" and not ELEVENLABS_API_KEY:
+                logger.warning("ElevenLabs alignment mode selected but API key not available. Falling back to 'auto'.")
+                alignment_mode = "auto"
             
-            # Convert to WebVTT
-            vtt = webvtt.WebVTT()
-            for s in aligned_segments:
-                start_str = seconds_to_srt_timestamp(s["start"])
-                end_str = seconds_to_srt_timestamp(s["end"])
-                vtt.captions.append(webvtt.Caption(start_str, end_str, s["text"]))
-        else:
-            # Use automatic or forced ElevenLabs alignment
-            vtt = transcribe_and_align_lyrics(
-                audio_path,
-                lyrics,
-                language=language,
-                alignment_mode=alignment_mode
-            )
-        
-        logger.info(f"✓ Generated subtitles with {len(vtt.captions)} captions")
-
-        # 5) Optimize subtitles
-        optimized = optimize_subtitles_for_timing(vtt.captions)
-        
-        # Ensure minimum duration for each subtitle
-        for i in range(len(optimized)):
-            start_obj = parse_time(optimized[i].start)
-            end_obj = parse_time(optimized[i].end)
-            
-            start_s = (start_obj.hour * 3600 + start_obj.minute * 60 + 
-                       start_obj.second + start_obj.microsecond / 1e6)
-            end_s = (end_obj.hour * 3600 + end_obj.minute * 60 + 
-                     end_obj.second + end_obj.microsecond / 1e6)
-            
-            # Apply minimum duration
-            if end_s - start_s < min_duration:
-                end_s = start_s + min_duration
-                optimized[i].end = seconds_to_srt_timestamp(end_s)
-            
-            # Fix any overlaps with next caption
-            if i < len(optimized) - 1:
-                next_start_obj = parse_time(optimized[i+1].start)
-                next_start_s = (next_start_obj.hour * 3600 + next_start_obj.minute * 60 + 
-                               next_start_obj.second + next_start_obj.microsecond / 1e6)
+            if alignment_mode == "even":
+                # Manually evenly distribute lyrics
+                temp_audio_clip, audio_duration = load_audio_with_fallback(audio_path)
+                temp_audio_clip.close()
                 
-                if end_s > next_start_s:
-                    # If this would make the caption too short, adjust the next one instead
-                    if next_start_s - start_s >= min_duration:
-                        optimized[i].end = seconds_to_srt_timestamp(next_start_s)
-                    else:
-                        optimized[i+1].start = seconds_to_srt_timestamp(end_s)
-        
-        logger.info(f"✓ Optimized subtitles: {len(optimized)} captions after optimization")
+                lyrics_lines = preprocess_lyrics(lyrics)
+                aligned_segments = align_lyrics_with_scribe(lyrics_lines, audio_duration)
+                
+                # Convert to WebVTT
+                vtt = webvtt.WebVTT()
+                for s in aligned_segments:
+                    start_str = seconds_to_srt_timestamp(s["start"])
+                    end_str = seconds_to_srt_timestamp(s["end"])
+                    vtt.captions.append(webvtt.Caption(start_str, end_str, s["text"]))
+            else:
+                # Use automatic or forced ElevenLabs alignment
+                vtt = transcribe_and_align_lyrics(
+                    audio_path,
+                    lyrics,
+                    language=language,
+                    alignment_mode=alignment_mode
+                )
+            
+            logger.info(f"✓ Generated subtitles with {len(vtt.captions)} captions")
 
-        # 6) Create subtitle text clips
-        subtitle_clips = []
-        for cap in optimized:
-            start_obj = parse_time(cap.start)
-            end_obj = parse_time(cap.end)
-            if not start_obj or not end_obj:
-                continue
+            # 5) Optimize subtitles
+            optimized = optimize_subtitles_for_timing(vtt.captions)
+            
+            # Ensure minimum duration for each subtitle
+            for i in range(len(optimized)):
+                start_obj = parse_time(optimized[i].start)
+                end_obj = parse_time(optimized[i].end)
+                
+                start_s = (start_obj.hour * 3600 + start_obj.minute * 60 + 
+                           start_obj.second + start_obj.microsecond / 1e6)
+                end_s = (end_obj.hour * 3600 + end_obj.minute * 60 + 
+                         end_obj.second + end_obj.microsecond / 1e6)
+                
+                # Apply minimum duration
+                if end_s - start_s < min_duration:
+                    end_s = start_s + min_duration
+                    optimized[i].end = seconds_to_srt_timestamp(end_s)
+                
+                # Fix any overlaps with next caption
+                if i < len(optimized) - 1:
+                    next_start_obj = parse_time(optimized[i+1].start)
+                    next_start_s = (next_start_obj.hour * 3600 + next_start_obj.minute * 60 + 
+                                   next_start_obj.second + next_start_obj.microsecond / 1e6)
+                    
+                    if end_s > next_start_s:
+                        # If this would make the caption too short, adjust the next one instead
+                        if next_start_s - start_s >= min_duration:
+                            optimized[i].end = seconds_to_srt_timestamp(next_start_s)
+                        else:
+                            optimized[i+1].start = seconds_to_srt_timestamp(end_s)
+            
+            logger.info(f"✓ Optimized subtitles: {len(optimized)} captions after optimization")
 
-            start_s = (start_obj.hour * 3600
+            # 6) Create subtitle text clips
+            subtitle_clips = []
+            for cap in optimized:
+                start_obj = parse_time(cap.start)
+                end_obj = parse_time(cap.end)
+                if not start_obj or not end_obj:
+                    continue
+
+    start_s = (start_obj.hour * 3600
                        + start_obj.minute * 60
                        + start_obj.second
                        + start_obj.microsecond / 1e6)
-            end_s = (end_obj.hour * 3600
+    end_s = (end_obj.hour * 3600
                      + end_obj.minute * 60
                      + end_obj.second
                      + end_obj.microsecond / 1e6)
             
-            # Apply global timing offset if specified
-            start_s += timing_offset
-            end_s += timing_offset
+    # Apply global timing offset if specified
+    start_s += timing_offset
+    end_s += timing_offset
             
-            # Ensure start time is not negative
-            start_s = max(0, start_s)
-            # Ensure end time does not exceed video duration
-            end_s = min(duration, end_s)
+    # Ensure start time is not negative
+    start_s = max(0, start_s)
+    # Ensure end time does not exceed video duration
+    end_s = min(duration, end_s)
             
-            sub_duration = end_s - start_s
-            if sub_duration <= 0:
+    sub_duration = end_s - start_s
+    if sub_duration <= 0:
                 continue
 
-            # Split caption text into words and create clips for N words at a time
-            words = cap.text.split()
-            word_groups = []
+    # Split caption text into words and create clips for N words at a time
+    words = cap.text.split()
+    word_groups = []
             
-            # Group words into chunks of specified size
-            for i in range(0, len(words), words_per_group):
+    # Group words into chunks of specified size
+    for i in range(0, len(words), words_per_group):
                 group = words[i:min(i+words_per_group, len(words))]
                 word_groups.append(" ".join(group))
             
-            # Calculate timing for each word group
-            if word_groups:
+    # Calculate timing for each word group
+    if word_groups:
                 time_per_group = sub_duration / len(word_groups)
                 
                 for i, group_text in enumerate(word_groups):
@@ -1212,12 +1212,12 @@ async def create_video(
                     
                     subtitle_clips.append(txt_clip)
 
-        logger.info(f"✓ Created {len(subtitle_clips)} text clips for subtitles")
+            logger.info(f"✓ Created {len(subtitle_clips)} text clips for subtitles")
 
-        # 7) Combine background + subtitles + audio
-        final_clip = CompositeVideoClip([bg_clip] + subtitle_clips)
-        final_clip.audio = audio_clip
-        logger.info(f"✓ Combined image, subtitles, and audio into final clip")
+            # 7) Combine background + subtitles + audio
+            final_clip = CompositeVideoClip([bg_clip] + subtitle_clips)
+            final_clip.audio = audio_clip
+            logger.info(f"✓ Combined image, subtitles, and audio into final clip")
 
             # 8) Write final video
             output_video = os.path.join(output_dir, f"output_{request_id}.mp4")
