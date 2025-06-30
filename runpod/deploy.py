@@ -60,6 +60,22 @@ class RunPodClient:
             return response.json()
         else:
             raise Exception(f"RunPod API error: {response.status_code} - {response.text}")
+    
+    def test_connection(self, endpoint_id: str) -> Dict[str, Any]:
+        """Test RunPod connection with minimal payload."""
+        job_input = {
+            "job_id": "connection-test",
+            "test_mode": True,
+            "message": "Testing RunPod connection"
+        }
+        
+        url = f"{self.base_url}/{endpoint_id}/runsync"
+        response = requests.post(url, headers=self.headers, json={"input": job_input})
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise Exception(f"RunPod API error: {response.status_code} - {response.text}")
 
 def test_runpod_deployment():
     """Test the RunPod deployment with sample data."""
@@ -78,6 +94,17 @@ def test_runpod_deployment():
     
     client = RunPodClient(api_key)
     
+    # First test basic connection
+    try:
+        print("🔍 Testing RunPod connection...")
+        result = client.test_connection(endpoint_id)
+        print("✅ Connection test successful!")
+        print(f"Response: {result}")
+        
+    except Exception as e:
+        print(f"❌ Connection test failed: {e}")
+        return
+    
     # Test with sample files (you'll need to provide these)
     sample_image = "test_image.jpg"
     sample_audio = "test_audio.mp3"
@@ -85,6 +112,7 @@ def test_runpod_deployment():
     if not os.path.exists(sample_image) or not os.path.exists(sample_audio):
         print("❌ Sample test files not found")
         print("Please provide 'test_image.jpg' and 'test_audio.mp3' for testing")
+        print("For now, we'll skip the full video test")
         return
     
     try:
@@ -106,6 +134,7 @@ def test_runpod_deployment():
         
         if result.get("output") and result["output"].get("video_base64"):
             # Save the output video
+            import base64
             video_data = base64.b64decode(result["output"]["video_base64"])
             with open("runpod_test_output.mp4", "wb") as f:
                 f.write(video_data)

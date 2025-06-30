@@ -31,8 +31,9 @@ ENV CUDA_VISIBLE_DEVICES=0
 ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 ENV MOVIEPY_TEMP_DIR=/tmp/moviepy
 
-# Copy RunPod handler
+# Copy RunPod handlers
 COPY runpod/handler.py .
+COPY runpod/handler_simple.py .
 
-# Set the entry point
-CMD ["python", "handler.py"]
+# Set the entry point to use simplified handler first
+CMD ["python", "handler_simple.py"]
