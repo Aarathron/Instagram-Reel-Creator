@@ -10,3 +10,9 @@ python-multipart
 requests
 requests-toolbelt
 indic-transliteration
+redis
+celery
+pydantic
+sqlalchemy
+aiosqlite
+runpod

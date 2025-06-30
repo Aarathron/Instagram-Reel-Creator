@@ -1,9 +1,50 @@
-version: '4'
+version: '3.8'
 services:
-  app:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+  
+  api:
     build: .
     ports:
       - "8002:8001"
+    volumes:
+      - .:/app
+      - ./output:/app/output
+      - ./uploads:/app/uploads
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    command: python src/async_api.py
+  
+  worker:
+    build: .
+    volumes:
+      - .:/app
+      - ./output:/app/output
+      - ./uploads:/app/uploads
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    command: python src/worker.py
+    deploy:
+      replicas: 1
+  
+  # Legacy sync API (optional - for backwards compatibility)
+  app:
+    build: .
+    ports:
+      - "8003:8001"
     volumes:
       - .:/app
       - ./output:/app/output
@@ -11,3 +52,6 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
     command: python src/main.py
+
+volumes:
+  redis_data:
