@@ -12,8 +12,13 @@ This guide walks you through setting up GPU-accelerated video processing using R
 
 ### 1.1 Build the GPU-optimized image
 ```bash
+# Build from the runpod directory
 cd runpod/
 docker build -t your-dockerhub-username/reel-creator-gpu:latest .
+
+# Alternative: Build from project root
+# cd ..
+# docker build -f runpod/Dockerfile -t your-dockerhub-username/reel-creator-gpu:latest .
 ```
 
 ### 1.2 Push to Docker Hub
