@@ -13,12 +13,12 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /workspace
 
 # Copy requirements and install Python dependencies
-COPY ../requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
-COPY ../src/ ./src/
-COPY ../static/ ./static/
+COPY src/ ./src/
+COPY static/ ./static/
 
 # Create necessary directories
 RUN mkdir -p uploads output
@@ -32,7 +32,7 @@ ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 ENV MOVIEPY_TEMP_DIR=/tmp/moviepy
 
 # Copy RunPod handler
-COPY handler.py .
+COPY runpod/handler.py .
 
 # Set the entry point
 CMD ["python", "handler.py"]

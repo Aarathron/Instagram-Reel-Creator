@@ -1,0 +1,52 @@
+# Git
+.git
+.gitignore
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Output and upload directories
+output/
+uploads/
+
+# Database files
+*.db
+*.sqlite
+
+# Temporary files
+*.log
+*.tmp
+temp-*
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Documentation (not needed in container)
+docs/
+*.md
+!requirements.txt
+
+# Test files
+test_*
+*_test.*
+
+# Sensitive files
+.env
+*.key
+*.pem
