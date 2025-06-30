@@ -1155,50 +1155,50 @@ async def create_video(
                 if not start_obj or not end_obj:
                     continue
 
-    start_s = (start_obj.hour * 3600
-                       + start_obj.minute * 60
-                       + start_obj.second
-                       + start_obj.microsecond / 1e6)
-    end_s = (end_obj.hour * 3600
-                     + end_obj.minute * 60
-                     + end_obj.second
-                     + end_obj.microsecond / 1e6)
+                start_s = (start_obj.hour * 3600
+                           + start_obj.minute * 60
+                           + start_obj.second
+                           + start_obj.microsecond / 1e6)
+                end_s = (end_obj.hour * 3600
+                         + end_obj.minute * 60
+                         + end_obj.second
+                         + end_obj.microsecond / 1e6)
             
-    # Apply global timing offset if specified
-    start_s += timing_offset
-    end_s += timing_offset
+                # Apply global timing offset if specified
+                start_s += timing_offset
+                end_s += timing_offset
             
-    # Ensure start time is not negative
-    start_s = max(0, start_s)
-    # Ensure end time does not exceed video duration
-    end_s = min(duration, end_s)
+                # Ensure start time is not negative
+                start_s = max(0, start_s)
+                # Ensure end time does not exceed video duration
+                end_s = min(duration, end_s)
             
-    sub_duration = end_s - start_s
-    if sub_duration <= 0:
-                continue
+                sub_duration = end_s - start_s
+                if sub_duration <= 0:
+                    continue
 
-    # Split caption text into words and create clips for N words at a time
-    words = cap.text.split()
-    word_groups = []
+                # Split caption text into words and create clips for N words at a time
+                words = cap.text.split()
+                word_groups = []
             
-    # Group words into chunks of specified size
-    for i in range(0, len(words), words_per_group):
-                group = words[i:min(i+words_per_group, len(words))]
-                word_groups.append(" ".join(group))
+                # Group words into chunks of specified size
+                for i in range(0, len(words), words_per_group):
+                    group = words[i:min(i+words_per_group, len(words))]
+                    word_groups.append(" ".join(group))
             
-    # Calculate timing for each word group
-    if word_groups:
-                time_per_group = sub_duration / len(word_groups)
+                # Calculate timing for each word group
+                if word_groups:
+                    time_per_group = sub_duration / len(word_groups)
                 
-                for i, group_text in enumerate(word_groups):
-                    group_start = start_s + (i * time_per_group)
+                    for i, group_text in enumerate(word_groups):
+                        group_start = start_s + (i * time_per_group)
                     
-                    # Add timing debug info if requested
-                    if debug_mode:
-                        group_text = f"[{group_start:.1f}s] {group_text}"
+                        # Add timing debug info if requested
+                        if debug_mode:
+                            group_text = f"[{group_start:.1f}s] {group_text}"
                     
-                    # Create text clip for this group of words with improved visual styling
-                    txt_clip = TextClip(
+                        # Create text clip for this group of words with improved visual styling
+                        txt_clip = TextClip(
                         text=group_text,
                         font=get_available_font(),
                         font_size=font_size,
@@ -1208,11 +1208,11 @@ async def create_video(
                         stroke_color='black',
                         stroke_width=2,  # Thicker stroke for better contrast
                         method='caption'
-                    ).with_duration(time_per_group).with_start(group_start).with_position(("center", 0.8), relative=True)
+                        ).with_duration(time_per_group).with_start(group_start).with_position(("center", 0.8), relative=True)
                     
-                    subtitle_clips.append(txt_clip)
+                        subtitle_clips.append(txt_clip)
 
-            logger.info(f"✓ Created {len(subtitle_clips)} text clips for subtitles")
+                        logger.info(f"✓ Created {len(subtitle_clips)} text clips for subtitles")
 
             # 7) Combine background + subtitles + audio
             final_clip = CompositeVideoClip([bg_clip] + subtitle_clips)
