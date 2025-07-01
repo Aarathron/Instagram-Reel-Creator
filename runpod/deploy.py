@@ -63,9 +63,18 @@ class RunPodClient:
     
     def test_connection(self, endpoint_id: str) -> Dict[str, Any]:
         """Test RunPod connection with minimal payload."""
+        # Create minimal test data for connection test
+        minimal_png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAGA0VaV9QAAAABJRU5ErkJggg=="
+        minimal_mp3_base64 = "SUQzAwAAAAAJAAABU1NFTkMAAAAOAAADAAAAAOQDwAA="
+        
         job_input = {
             "job_id": "connection-test",
             "test_mode": True,
+            "image_base64": minimal_png_base64,
+            "audio_base64": minimal_mp3_base64,
+            "image_filename": "test.png",
+            "audio_filename": "test.mp3",
+            "lyrics": "Test connection",
             "message": "Testing RunPod connection"
         }
         
