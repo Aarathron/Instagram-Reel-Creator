@@ -151,8 +151,12 @@ def test_runpod_deployment():
             with open(audio_path, "rb") as f:
                 audio_base64 = base64.b64encode(f.read()).decode()
             
+            # Generate unique job ID to avoid cached results
+            import time
+            unique_id = f"real-test-{int(time.time())}"
+            
             test_job_input = {
-                "job_id": "real-video-processing-test",
+                "job_id": unique_id,
                 "image_base64": image_base64,
                 "audio_base64": audio_base64,
                 "image_filename": os.path.basename(image_path),
@@ -162,7 +166,8 @@ def test_runpod_deployment():
                 "alignment_mode": "even",  # Use even distribution to avoid ElevenLabs dependency
                 "font_size": 45,
                 "font_color": "yellow",
-                "words_per_group": 3
+                "words_per_group": 3,
+                "test_real_files": True  # Flag to indicate this uses real files
             }
             print(f"📊 Test data size - Image: {len(image_base64)} chars, Audio: {len(audio_base64)} chars")
             
@@ -196,6 +201,16 @@ def test_runpod_deployment():
         print("✅ Job submitted successfully!")
         print(f"Job ID: {result.get('id')}")
         print(f"Status: {result.get('status')}")
+        
+        # Debug: Show what RunPod actually processed
+        if result.get("output"):
+            output = result["output"]
+            if "job_id" in output:
+                print(f"🔍 Processed job ID: {output['job_id']}")
+            if "test_real_files" in output:
+                print("✅ RunPod processed real files!")
+            else:
+                print("⚠️ RunPod processed test/cached data")
         
         if result.get("output") and result["output"].get("video_base64"):
             # Save the output video
