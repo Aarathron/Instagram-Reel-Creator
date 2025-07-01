@@ -114,27 +114,55 @@ def test_runpod_deployment():
         print(f"❌ Connection test failed: {e}")
         return
     
-    # Create minimal test data using base64 encoded minimal files
+    # Create real test data with valid files
     try:
-        print("🚀 Creating minimal test data for RunPod...")
+        print("🚀 Creating real test data for RunPod...")
         
-        # Create a minimal 1x1 pixel PNG image (base64)
-        minimal_png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAGA0VaV9QAAAABJRU5ErkJggg=="
+        # Use real test files for complete video processing test
+        image_path = "test_image.jpg"
+        audio_path = "test_audio.mp3"
         
-        # Create minimal MP3 header (base64) - this won't be valid for actual processing but tests the pipeline
-        minimal_mp3_base64 = "SUQzAwAAAAAJAAABU1NFTkMAAAAOAAADAAAAAOQDwAA="
-        
-        # Prepare test job
-        test_job_input = {
-            "job_id": "test-job-123",
-            "image_base64": minimal_png_base64,
-            "audio_base64": minimal_mp3_base64,
-            "image_filename": "test.png",
-            "audio_filename": "test.mp3",
-            "lyrics": "This is a test video with sample lyrics for testing the RunPod deployment.",
-            "language": "en",
-            "alignment_mode": "even"  # Use even distribution to avoid ElevenLabs dependency
-        }
+        if os.path.exists(image_path) and os.path.exists(audio_path):
+            print("✅ Found real test files - testing complete video processing...")
+            
+            # Read and encode real test files
+            with open(image_path, "rb") as f:
+                image_base64 = base64.b64encode(f.read()).decode()
+            
+            with open(audio_path, "rb") as f:
+                audio_base64 = base64.b64encode(f.read()).decode()
+            
+            test_job_input = {
+                "job_id": "real-video-processing-test",
+                "image_base64": image_base64,
+                "audio_base64": audio_base64,
+                "image_filename": "test_image.jpg",
+                "audio_filename": "test_audio.mp3",
+                "lyrics": "This is a complete test of RunPod video processing using real audio and image files.",
+                "language": "en",
+                "alignment_mode": "even",  # Use even distribution to avoid ElevenLabs dependency
+                "font_size": 45,
+                "font_color": "yellow",
+                "words_per_group": 3
+            }
+            print(f"📊 Test data size - Image: {len(image_base64)} chars, Audio: {len(audio_base64)} chars")
+            
+        else:
+            print("⚠️ Real test files not found - using test mode instead...")
+            print(f"  Expected: {image_path} and {audio_path}")
+            print("  Add these files to the runpod/ directory for full testing")
+            
+            # Fallback to test mode
+            test_job_input = {
+                "job_id": "connection-test-fallback",
+                "test_mode": True,
+                "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAGA0VaV9QAAAABJRU5ErkJggg==",
+                "audio_base64": "placeholder",
+                "image_filename": "test.png",
+                "audio_filename": "test.mp3",
+                "lyrics": "Connection test only",
+                "message": "Testing RunPod connection"
+            }
         
         # Submit directly to RunPod
         url = f"{client.base_url}/{endpoint_id}/runsync"

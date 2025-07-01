@@ -91,6 +91,7 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
         
         # First run a simple test
         if actual_input.get("test_mode", False):
+            logger.info("🧪 Running in test mode - skipping actual video processing")
             return test_handler(actual_input)
         
         # Import video processing modules
