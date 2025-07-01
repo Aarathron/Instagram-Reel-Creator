@@ -66,9 +66,18 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"📋 Input keys received: {list(job_input.keys())}")
         logger.info(f"🔍 Input data preview: {str(job_input)[:500]}...")
         
+        # CRITICAL FIX: RunPod wraps input data in 'input' field
+        if 'input' in job_input and isinstance(job_input['input'], dict):
+            logger.info("🔄 Detected wrapped input, extracting...")
+            actual_input = job_input['input']
+        else:
+            actual_input = job_input
+            
+        logger.info(f"📋 Actual input keys: {list(actual_input.keys())}")
+        
         # First run a simple test
-        if job_input.get("test_mode", False):
-            return test_handler(job_input)
+        if actual_input.get("test_mode", False):
+            return test_handler(actual_input)
         
         # Import video processing modules
         import sys
@@ -99,29 +108,29 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
         
         # Validate required fields first
         required_fields = ["image_base64", "audio_base64", "image_filename", "audio_filename", "lyrics"]
-        missing_fields = [field for field in required_fields if field not in job_input]
+        missing_fields = [field for field in required_fields if field not in actual_input]
         
         if missing_fields:
             logger.error(f"❌ Missing required fields: {missing_fields}")
-            logger.error(f"Available fields: {list(job_input.keys())}")
+            logger.error(f"Available fields: {list(actual_input.keys())}")
             return {
                 "status": "failed",
                 "error": f"Missing required fields: {missing_fields}",
-                "available_fields": list(job_input.keys()),
-                "job_id": job_input.get("job_id", "unknown")
+                "available_fields": list(actual_input.keys()),
+                "job_id": actual_input.get("job_id", "unknown")
             }
         
         # Process the video using simplified approach
         with tempfile.TemporaryDirectory() as temp_dir:
             # Decode and save files
             try:
-                image_data = base64.b64decode(job_input["image_base64"])
-                image_path = os.path.join(temp_dir, job_input["image_filename"])
+                image_data = base64.b64decode(actual_input["image_base64"])
+                image_path = os.path.join(temp_dir, actual_input["image_filename"])
                 with open(image_path, "wb") as f:
                     f.write(image_data)
                 
-                audio_data = base64.b64decode(job_input["audio_base64"])
-                audio_path = os.path.join(temp_dir, job_input["audio_filename"])
+                audio_data = base64.b64decode(actual_input["audio_base64"])
+                audio_path = os.path.join(temp_dir, actual_input["audio_filename"])
                 with open(audio_path, "wb") as f:
                     f.write(audio_data)
                     
@@ -132,19 +141,19 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
                 return {
                     "status": "failed", 
                     "error": f"File decode error: {str(e)}",
-                    "job_id": job_input.get("job_id", "unknown")
+                    "job_id": actual_input.get("job_id", "unknown")
                 }
             
             # Extract parameters
-            lyrics = job_input["lyrics"]
-            language = job_input.get("language")
-            font_size = job_input.get("font_size", 45)
-            font_color = job_input.get("font_color", "yellow")
-            words_per_group = job_input.get("words_per_group", 3)
-            timing_offset = job_input.get("timing_offset", 0.0)
-            min_duration = job_input.get("min_duration", 1.0)
-            alignment_mode = job_input.get("alignment_mode", "auto")
-            debug_mode = job_input.get("debug_mode", False)
+            lyrics = actual_input["lyrics"]
+            language = actual_input.get("language")
+            font_size = actual_input.get("font_size", 45)
+            font_color = actual_input.get("font_color", "yellow")
+            words_per_group = actual_input.get("words_per_group", 3)
+            timing_offset = actual_input.get("timing_offset", 0.0)
+            min_duration = actual_input.get("min_duration", 1.0)
+            alignment_mode = actual_input.get("alignment_mode", "auto")
+            debug_mode = actual_input.get("debug_mode", False)
             
             # Load audio
             logger.info("🎵 Loading audio...")
@@ -211,7 +220,7 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
             final_clip.audio = audio_clip
             
             # Write output
-            output_path = os.path.join("/workspace/output", f"output_{job_input['job_id']}.mp4")
+            output_path = os.path.join("/workspace/output", f"output_{actual_input['job_id']}.mp4")
             os.makedirs("/workspace/output", exist_ok=True)
             
             logger.info(f"🎥 Writing video to {output_path}...")
@@ -246,7 +255,7 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
             return {
                 "status": "completed",
                 "video_base64": video_base64,
-                "job_id": job_input["job_id"]
+                "job_id": actual_input["job_id"]
             }
             
     except Exception as e:
