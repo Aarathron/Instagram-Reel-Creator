@@ -2,16 +2,20 @@
 
 ## Overview
 
-The Instagram Reel Creator API is a FastAPI-based service that creates video reels from static images, audio files, and lyrics. It automatically generates synchronized subtitles using advanced transcription and alignment techniques.
+The Instagram Reel Creator API is a FastAPI-based service that creates video reels from static images, audio files, and lyrics. It features an async job queue system with optional GPU acceleration via RunPod serverless for high-performance video processing.
 
 ## Features
 
+- **Async Job Queue**: Background processing with Redis-based job queue
+- **GPU Acceleration**: Optional RunPod serverless GPU for 3-5x faster processing
 - **Video Creation**: Combines static images with audio to create video content
 - **Smart Subtitle Generation**: Uses ElevenLabs Scribe API for accurate transcription
 - **Lyrics Alignment**: Intelligently aligns provided lyrics with audio timing
 - **Multiple Alignment Modes**: Auto, ElevenLabs direct, or even distribution
 - **Customizable Styling**: Configurable font size, color, and timing options
 - **File Format Support**: JPEG/PNG images, MP3/WAV/FLAC audio
+- **Job Status Tracking**: Real-time progress updates and status monitoring
+- **Scalable Architecture**: Supports multiple workers and load balancing
 
 ## Quick Start
 
@@ -25,17 +29,25 @@ The Instagram Reel Creator API is a FastAPI-based service that creates video ree
 
 2. **Set environment variables**
    ```bash
-   export ELEVENLABS_API_KEY="your_elevenlabs_api_key_here"
+   # Copy environment template
+   cp .env.example .env
+   
+   # Edit .env with your API keys
+   ELEVENLABS_API_KEY="your_elevenlabs_api_key_here"
+   RUNPOD_API_KEY="your_runpod_key"  # Optional, for GPU acceleration
+   RUNPOD_ENDPOINT_ID="your_endpoint_id"  # Optional, for GPU acceleration
    ```
 
 3. **Run with Docker Compose**
    ```bash
+   # Start async system (Redis, API, Worker)
    docker-compose up --build
    ```
 
 4. **Access the API**
-   - API Base URL: `http://localhost:8002`
-   - Web Interface: `http://localhost:8002/static/index.html`
+   - Async API: `http://localhost:8002`
+   - Legacy Sync API: `http://localhost:8003` (optional)
+   - Web Interface: `http://localhost:8002/static/async_test.html`
 
 ### Manual Installation
 
@@ -56,14 +68,101 @@ The Instagram Reel Creator API is a FastAPI-based service that creates video ree
 
 3. **Run the API server**
    ```bash
+   # Start Redis locally
+   redis-server
+   
+   # In separate terminals:
+   python src/async_api.py    # API server
+   python src/worker.py       # Background worker
+   
+   # Legacy sync API (optional)
    python src/main.py
    ```
 
+## API Architecture Types
+
+### 1. Async API (Recommended)
+Modern job queue system with background processing, status tracking, and optional GPU acceleration.
+
+### 2. Legacy Sync API
+Single endpoint that processes videos synchronously - users wait for completion.
+
 ## API Endpoints
 
-### POST `/create-video`
+### Async Job API Endpoints
 
-Creates a video reel from uploaded image, audio, and optional lyrics.
+#### POST `/jobs/create-video`
+
+Submits a video creation job to the queue and returns immediately with a job ID.
+
+#### Request Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `image` | File | Yes | Image file (JPEG/PNG, max 100MB) |
+| `audio` | File | Yes | Audio file (MP3/WAV/FLAC, max 100MB) |
+| `lyrics` | String | No | Lyrics text for subtitle generation |
+| `language` | String | No | Language code (e.g., 'en', 'hi', 'es') |
+| `font_size` | Integer | No | Font size for subtitles (default: 45) |
+| `font_color` | String | No | Font color for subtitles (default: "yellow") |
+| `words_per_group` | Integer | No | Words to display together (default: 3) |
+| `timing_offset` | Float | No | Global timing offset in seconds (default: 0.0) |
+| `min_duration` | Float | No | Minimum duration per subtitle (default: 1.0) |
+| `alignment_mode` | String | No | "auto", "elevenlabs", or "even" (default: "auto") |
+| `debug_mode` | Boolean | No | Add timing info to subtitles (default: false) |
+
+#### Response
+
+```json
+{
+  "job_id": "uuid-string",
+  "status": "pending",
+  "created_at": "2023-01-01T00:00:00",
+  "progress_percentage": 0
+}
+```
+
+#### GET `/jobs/{job_id}`
+
+Check job status and progress.
+
+#### Response
+
+```json
+{
+  "job_id": "uuid-string",
+  "status": "processing",  // pending, processing, completed, failed
+  "progress_percentage": 75,
+  "created_at": "2023-01-01T00:00:00",
+  "started_at": "2023-01-01T00:01:00",
+  "processing_time_seconds": 45.2,
+  "error_message": null
+}
+```
+
+#### GET `/jobs/{job_id}/download`
+
+Download the completed video file (only available when status is "completed").
+
+#### DELETE `/jobs/{job_id}`
+
+Delete job and associated files.
+
+#### GET `/jobs`
+
+List all jobs with optional filtering:
+- `?status=completed` - Filter by status
+- `?limit=10` - Limit results
+
+#### GET `/health`
+
+Health check for API and Redis connectivity.
+
+### Legacy Sync API Endpoint
+
+#### POST `/create-video` (Legacy)
+
+Creates a video reel synchronously - user waits for completion.
 
 #### Request Parameters
 
@@ -86,10 +185,28 @@ Creates a video reel from uploaded image, audio, and optional lyrics.
 - **Success (200)**: Returns the generated MP4 video file
 - **Error (4xx/5xx)**: Returns JSON with error details
 
-#### Example Request (cURL)
+#### Example Request (cURL) - Async API
 
 ```bash
-curl -X POST "http://localhost:8002/create-video" \
+# Submit job
+JOB_ID=$(curl -X POST "http://localhost:8002/jobs/create-video" \
+  -F "image=@/path/to/image.jpg" \
+  -F "audio=@/path/to/audio.mp3" \
+  -F "lyrics=Hello world\nThis is a test\nOf video creation" \
+  -F "language=en" \
+  -F "alignment_mode=auto" | jq -r '.job_id')
+
+# Check status
+curl "http://localhost:8002/jobs/$JOB_ID"
+
+# Download when completed
+curl "http://localhost:8002/jobs/$JOB_ID/download" --output output.mp4
+```
+
+#### Example Request (cURL) - Legacy Sync API
+
+```bash
+curl -X POST "http://localhost:8003/create-video" \
   -F "image=@/path/to/image.jpg" \
   -F "audio=@/path/to/audio.mp3" \
   -F "lyrics=Hello world\nThis is a test\nOf video creation" \
@@ -98,13 +215,14 @@ curl -X POST "http://localhost:8002/create-video" \
   --output output.mp4
 ```
 
-#### Example Request (Python)
+#### Example Request (Python) - Async API
 
 ```python
 import requests
+import time
 from requests_toolbelt import MultipartEncoder
 
-# Prepare the multipart form data
+# Submit job
 encoder = MultipartEncoder(
     fields={
         'image': ('image.jpg', open('path/to/image.jpg', 'rb'), 'image/jpeg'),
@@ -117,22 +235,37 @@ encoder = MultipartEncoder(
     }
 )
 
-# Make the request
+# Submit job
 response = requests.post(
-    'http://localhost:8002/create-video',
+    'http://localhost:8002/jobs/create-video',
     data=encoder,
-    headers={'Content-Type': encoder.content_type},
-    timeout=120  # Video processing can take time
+    headers={'Content-Type': encoder.content_type}
 )
 
-# Save the video file
 if response.status_code == 200:
-    with open('output.mp4', 'wb') as f:
-        f.write(response.content)
-    print("Video created successfully!")
-else:
-    print(f"Error: {response.status_code}")
-    print(response.json())
+    job_data = response.json()
+    job_id = job_data['job_id']
+    print(f"Job submitted: {job_id}")
+    
+    # Poll for completion
+    while True:
+        status_response = requests.get(f'http://localhost:8002/jobs/{job_id}')
+        status_data = status_response.json()
+        
+        print(f"Status: {status_data['status']} ({status_data['progress_percentage']}%)")
+        
+        if status_data['status'] == 'completed':
+            # Download video
+            download_response = requests.get(f'http://localhost:8002/jobs/{job_id}/download')
+            with open('output.mp4', 'wb') as f:
+                f.write(download_response.content)
+            print("Video downloaded successfully!")
+            break
+        elif status_data['status'] == 'failed':
+            print(f"Job failed: {status_data.get('error_message')}")
+            break
+        
+        time.sleep(5)  # Wait 5 seconds before checking again
 ```
 
 #### Example Request (JavaScript/Node.js)
@@ -180,6 +313,47 @@ axios.post('http://localhost:8002/create-video', form, {
 - Does not use ElevenLabs API
 - Fastest processing but less accurate timing
 
+## GPU Acceleration with RunPod
+
+### Overview
+The system supports optional GPU acceleration via RunPod serverless, providing 3-5x faster video processing.
+
+### How It Works
+1. **Input Transfer**: Images/audio encoded as base64 and sent to RunPod GPU instance
+2. **GPU Processing**: Video generation on high-performance GPU (30-60 seconds vs 2-5 minutes on CPU)
+3. **Output Transfer**: Completed video encoded as base64 and returned via HTTP
+4. **Automatic Cleanup**: RunPod instance shuts down automatically after completion
+
+### Setup RunPod GPU Acceleration
+
+1. **Create RunPod Account**
+   - Sign up at [RunPod.io](https://runpod.io)
+   - Add credits to your account
+
+2. **Deploy GPU Endpoint**
+   ```bash
+   cd runpod/
+   docker build -t your-registry/reel-creator-gpu .
+   docker push your-registry/reel-creator-gpu
+   ```
+
+3. **Configure Environment Variables**
+   ```bash
+   RUNPOD_API_KEY="your_runpod_api_key"
+   RUNPOD_ENDPOINT_ID="your_deployed_endpoint_id"
+   ```
+
+### Performance Comparison
+- **CPU Processing**: 2-5 minutes per video
+- **GPU Processing**: 30-60 seconds per video (3-5x faster)
+- **RunPod Cold Start**: ~30-60 seconds additional overhead
+- **Cost Effective**: Only pay for GPU time when processing
+
+### When GPU is Used
+- Worker automatically detects RunPod configuration
+- **With GPU**: `🚀 RunPod GPU acceleration enabled`
+- **Without GPU**: `💻 Using local CPU processing`
+
 ## Configuration
 
 ### Environment Variables
@@ -187,6 +361,9 @@ axios.post('http://localhost:8002/create-video', form, {
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `ELEVENLABS_API_KEY` | ElevenLabs API key for transcription | Yes (for auto/elevenlabs modes) |
+| `REDIS_URL` | Redis connection URL | No (defaults to localhost:6379) |
+| `RUNPOD_API_KEY` | RunPod API key for GPU acceleration | No (enables GPU processing) |
+| `RUNPOD_ENDPOINT_ID` | RunPod endpoint ID for GPU acceleration | No (enables GPU processing) |
 
 ### API Key Setup
 
@@ -241,17 +418,26 @@ This adds timing information to subtitles: `[2.5s] Hello world`
 - Recommended: Keep files under 50MB for faster processing
 
 ### Processing Time
-- Typical processing time: 1-3 minutes for a 3-minute audio file
-- Factors affecting speed:
-  - Audio duration
-  - Number of lyrics lines
-  - ElevenLabs API response time
-  - Server resources
+**CPU Processing (Local)**:
+- Typical processing time: 2-5 minutes for a 3-minute audio file
+- Factors: Audio duration, lyrics complexity, server resources
+
+**GPU Processing (RunPod)**:
+- Typical processing time: 30-60 seconds for a 3-minute audio file
+- Cold start overhead: 30-60 seconds
+- 3-5x faster than CPU processing
+
+### Job Queue Performance
+- **Concurrent Jobs**: Multiple workers can process jobs simultaneously
+- **Progress Tracking**: Real-time progress updates (0-100%)
+- **Automatic Retry**: Failed jobs can be resubmitted
+- **Cleanup**: Automatic file deletion when jobs are deleted
 
 ### Rate Limiting
 - No built-in rate limiting (implement as needed)
 - ElevenLabs API has its own rate limits
-- Consider implementing queuing for production use
+- Redis queue naturally handles load balancing
+- RunPod has per-account concurrency limits
 
 ## Integration Examples
 
@@ -363,37 +549,60 @@ Log levels include:
 
 ### Core Components
 
-1. **FastAPI Server** (`src/main.py`)
-   - Handles HTTP requests
+1. **Async API Server** (`src/async_api.py`)
+   - Job submission and status endpoints
    - File upload management
-   - Error handling and responses
+   - Database integration with SQLAlchemy
+   - Real-time progress tracking
 
-2. **Audio Processing** 
-   - ElevenLabs Scribe integration
-   - Audio format handling
-   - Duration calculation
+2. **Background Worker** (`src/worker.py`)
+   - Redis job queue processing
+   - GPU/CPU video processing
+   - RunPod integration for acceleration
+   - Progress updates and error handling
 
-3. **Video Generation**
-   - MoviePy for video composition
-   - Subtitle rendering
-   - Font management
+3. **Legacy Sync API** (`src/main.py`)
+   - Single endpoint synchronous processing
+   - Backwards compatibility
+   - Direct file response
 
-4. **Alignment Engine**
-   - Word-level matching
-   - Timing optimization
-   - Fallback strategies
+4. **Database Layer** (`src/models.py`)
+   - SQLite database with job tracking
+   - Pydantic models for API responses
+   - Job status and progress management
+
+5. **RunPod GPU Handler** (`runpod/handler.py`)
+   - Serverless GPU processing
+   - Base64 file transfer
+   - Automatic scaling and cleanup
+
+### Architecture Components
+
+- **Redis Queue**: FIFO job queue with persistence
+- **SQLite Database**: Job metadata and status tracking  
+- **File Storage**: Persistent volumes for uploads/outputs
+- **RunPod Integration**: Optional GPU acceleration
 
 ### File Structure
 
 ```
 Instagram-Reel-Creator/
 ├── src/
-│   └── main.py              # Main API server
+│   ├── async_api.py         # Async job API server
+│   ├── worker.py            # Background job processor
+│   ├── main.py              # Legacy sync API server
+│   └── models.py            # Database models and schemas
+├── runpod/
+│   ├── handler.py           # RunPod GPU handler
+│   └── Dockerfile           # GPU container definition
 ├── static/
-│   └── index.html           # Web interface
+│   ├── async_test.html      # Async API web interface
+│   └── index.html           # Legacy web interface
 ├── requirements.txt         # Python dependencies
-├── Dockerfile              # Container definition
-├── docker-compose.yml      # Docker Compose config
+├── Dockerfile              # Main container definition
+├── docker-compose.yml      # Development compose config
+├── docker-compose.prod.yml  # Production compose config
+├── COOLIFY_DEPLOYMENT.md    # Deployment guide
 └── API_READ_ME.md          # This documentation
 ```
 
