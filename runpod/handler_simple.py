@@ -29,15 +29,15 @@ def test_handler(job_input: Dict[str, Any]) -> Dict[str, Any]:
         # Test file operations
         test_message = f"Hello from RunPod GPU! Job ID: {job_id}"
         
-        # Test environment and RunPod secrets
-        elevenlabs_key = os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("RUNPOD_SECRET_ELEVENLABS_API_KEY")
+        # Test environment and RunPod secrets access
+        elevenlabs_key = os.environ.get("ELEVENLABS_API_KEY")
         
         env_info = {
             "CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES"),
             "ELEVENLABS_API_KEY": "SET" if elevenlabs_key else "NOT_SET",
-            "RUNPOD_SECRET_CHECK": "SET" if os.environ.get("RUNPOD_SECRET_ELEVENLABS_API_KEY") else "NOT_SET",
             "Python_Version": os.sys.version,
-            "Working_Directory": os.getcwd()
+            "Working_Directory": os.getcwd(),
+            "ALL_ENV_VARS": [k for k in os.environ.keys() if "ELEVEN" in k.upper() or "SECRET" in k.upper()]
         }
         
         logger.info(f"Environment: {env_info}")
@@ -78,13 +78,16 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
             
         logger.info(f"📋 Actual input keys: {list(actual_input.keys())}")
         
-        # Set up ElevenLabs API key from RunPod secrets
-        elevenlabs_key = os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("RUNPOD_SECRET_ELEVENLABS_API_KEY")
+        # Check ElevenLabs API key availability
+        elevenlabs_key = os.environ.get("ELEVENLABS_API_KEY")
         if elevenlabs_key:
-            os.environ["ELEVENLABS_API_KEY"] = elevenlabs_key
-            logger.info("✅ ElevenLabs API key configured from RunPod secrets")
+            logger.info("✅ ElevenLabs API key found in environment")
         else:
-            logger.warning("⚠️ ElevenLabs API key not found in environment or RunPod secrets")
+            logger.warning("⚠️ ElevenLabs API key not found - you need to configure it in RunPod template")
+            logger.info("📋 Available environment variables containing 'eleven' or 'secret':")
+            for k in os.environ.keys():
+                if "eleven" in k.lower() or "secret" in k.lower():
+                    logger.info(f"  - {k}")}
         
         # First run a simple test
         if actual_input.get("test_mode", False):
