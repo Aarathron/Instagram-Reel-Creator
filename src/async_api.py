@@ -75,7 +75,7 @@ async def create_video_job(
     language: Optional[str] = Form(None, description="Language code (e.g., 'en', 'hi', etc.)"),
     font_size: Optional[int] = Form(45, description="Font size for subtitles"),
     font_color: Optional[str] = Form("yellow", description="Font color for subtitles"),
-    words_per_group: Optional[int] = Form(3, description="Number of words to show together"),
+    words_per_group: Optional[int] = Form(5, description="Number of words to show together (max 5)"),
     timing_offset: Optional[float] = Form(0.0, description="Global timing offset in seconds"),
     min_duration: Optional[float] = Form(1.0, description="Minimum duration for each subtitle in seconds"),
     alignment_mode: Optional[str] = Form("auto", description="Alignment mode: 'auto', 'elevenlabs', or 'even'"),
@@ -88,9 +88,14 @@ async def create_video_job(
     """
     logger.info("=== Creating new video job ===")
     
-    # Validate input files
+    # Validate input parameters
     if not lyrics or not lyrics.strip():
         raise HTTPException(status_code=400, detail="Lyrics text is required")
+    
+    # Enforce maximum words per group limit
+    if words_per_group > 5:
+        words_per_group = 5
+        logger.info(f"Limited words_per_group to maximum of 5")
     
     img_ext = os.path.splitext(image.filename)[1].lower()
     if img_ext not in [".jpg", ".jpeg", ".png"]:

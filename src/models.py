@@ -33,7 +33,7 @@ class VideoJob(Base):
     language = Column(String, nullable=True)
     font_size = Column(Integer, default=45)
     font_color = Column(String, default="yellow")
-    words_per_group = Column(Integer, default=3)
+    words_per_group = Column(Integer, default=5)
     timing_offset = Column(Float, default=0.0)
     min_duration = Column(Float, default=1.0)
     alignment_mode = Column(String, default="auto")
@@ -54,7 +54,7 @@ class JobRequest(BaseModel):
     language: Optional[str] = None
     font_size: Optional[int] = 45
     font_color: Optional[str] = "yellow"
-    words_per_group: Optional[int] = 3
+    words_per_group: Optional[int] = 5
     timing_offset: Optional[float] = 0.0
     min_duration: Optional[float] = 1.0
     alignment_mode: Optional[str] = "auto"

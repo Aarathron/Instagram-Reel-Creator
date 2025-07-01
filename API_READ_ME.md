@@ -105,7 +105,7 @@ Submits a video creation job to the queue and returns immediately with a job ID.
 | `language` | String | No | Language code (e.g., 'en', 'hi', 'es') |
 | `font_size` | Integer | No | Font size for subtitles (default: 45) |
 | `font_color` | String | No | Font color for subtitles (default: "yellow") |
-| `words_per_group` | Integer | No | Words to display together (default: 3) |
+| `words_per_group` | Integer | No | Words to display together (default: 5, max: 5) |
 | `timing_offset` | Float | No | Global timing offset in seconds (default: 0.0) |
 | `min_duration` | Float | No | Minimum duration per subtitle (default: 1.0) |
 | `alignment_mode` | String | No | "auto", "elevenlabs", or "even" (default: "auto") |
@@ -202,7 +202,7 @@ Creates a video reel synchronously - user waits for completion.
 | `language` | String | No | Language code (e.g., 'en', 'hi', 'es') |
 | `font_size` | Integer | No | Font size for subtitles (default: 45) |
 | `font_color` | String | No | Font color for subtitles (default: "yellow") |
-| `words_per_group` | Integer | No | Words to display together (default: 3) |
+| `words_per_group` | Integer | No | Words to display together (default: 5, max: 5) |
 | `timing_offset` | Float | No | Global timing offset in seconds (default: 0.0) |
 | `min_duration` | Float | No | Minimum duration per subtitle (default: 1.0) |
 | `alignment_mode` | String | No | "auto", "elevenlabs", or "even" (default: "auto") |
