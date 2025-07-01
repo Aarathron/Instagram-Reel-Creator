@@ -87,7 +87,7 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
             logger.info("📋 Available environment variables containing 'eleven' or 'secret':")
             for k in os.environ.keys():
                 if "eleven" in k.lower() or "secret" in k.lower():
-                    logger.info(f"  - {k}")}
+                    logger.info(f"  - {k}")
         
         # First run a simple test
         if actual_input.get("test_mode", False):
