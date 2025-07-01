@@ -144,6 +144,8 @@ Check job status and progress.
 
 Download the completed video file (only available when status is "completed").
 
+**⚠️ Important**: The video file is automatically deleted from the server after successful download to save storage space. You can only download each video once.
+
 #### DELETE `/jobs/{job_id}`
 
 Delete job and associated files.
@@ -157,6 +159,32 @@ List all jobs with optional filtering:
 #### GET `/health`
 
 Health check for API and Redis connectivity.
+
+#### POST `/admin/cleanup`
+
+Clean up old completed jobs and their files to save server space.
+
+**Parameters:**
+- `max_age_hours` (optional): Delete jobs older than this many hours (default: 24)
+
+**Response:**
+```json
+{
+  "message": "Cleanup completed",
+  "jobs_deleted": 5,
+  "files_deleted": 15,
+  "cutoff_time": "2023-01-01T00:00:00"
+}
+```
+
+**Usage:**
+```bash
+# Clean up jobs older than 24 hours (default)
+curl -X POST "http://localhost:8002/admin/cleanup"
+
+# Clean up jobs older than 6 hours
+curl -X POST "http://localhost:8002/admin/cleanup?max_age_hours=6"
+```
 
 ### Legacy Sync API Endpoint
 

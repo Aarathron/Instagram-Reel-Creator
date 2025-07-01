@@ -172,7 +172,7 @@ async def get_job_status(job_id: str, db: Session = Depends(get_db)):
 
 @app.get("/jobs/{job_id}/download")
 async def download_video(job_id: str, db: Session = Depends(get_db)):
-    """Download completed video file."""
+    """Download completed video file and automatically delete it after download."""
     job = db.query(VideoJob).filter(VideoJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -187,10 +187,40 @@ async def download_video(job_id: str, db: Session = Depends(get_db)):
     if not os.path.exists(output_path):
         raise HTTPException(status_code=404, detail="Output file not found on disk")
     
-    return FileResponse(
+    # Create a custom FileResponse that deletes the file after download
+    class AutoDeleteFileResponse(FileResponse):
+        def __init__(self, *args, **kwargs):
+            self.file_path_to_delete = kwargs.pop('file_path_to_delete', None)
+            self.job_to_update = kwargs.pop('job_to_update', None)
+            self.db_session = kwargs.pop('db_session', None)
+            super().__init__(*args, **kwargs)
+        
+        async def __call__(self, scope, receive, send):
+            try:
+                # Call the parent to serve the file
+                await super().__call__(scope, receive, send)
+            finally:
+                # Delete the file after serving
+                if self.file_path_to_delete and os.path.exists(self.file_path_to_delete):
+                    try:
+                        os.remove(self.file_path_to_delete)
+                        logger.info(f"Auto-deleted video file after download: {self.file_path_to_delete}")
+                        
+                        # Update job record to clear output filename
+                        if self.job_to_update and self.db_session:
+                            self.job_to_update.output_filename = None
+                            self.db_session.commit()
+                            logger.info(f"Cleared output filename for job {self.job_to_update.id}")
+                    except Exception as e:
+                        logger.error(f"Failed to auto-delete file {self.file_path_to_delete}: {e}")
+    
+    return AutoDeleteFileResponse(
         output_path,
         media_type="video/mp4",
-        filename=f"video_{job_id}.mp4"
+        filename=f"video_{job_id}.mp4",
+        file_path_to_delete=output_path,
+        job_to_update=job,
+        db_session=db
     )
 
 @app.delete("/jobs/{job_id}")
@@ -238,7 +268,7 @@ async def list_jobs(
     
     jobs = query.order_by(VideoJob.created_at.desc()).offset(offset).limit(limit).all()
     
-    return [JobResponse.from_orm(job) for job in jobs]
+    return [JobResponse.from_video_job(job) for job in jobs]
 
 @app.get("/health")
 async def health_check():
@@ -256,6 +286,61 @@ async def health_check():
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=503, detail="Service unhealthy")
+
+@app.post("/admin/cleanup")
+async def cleanup_old_jobs(max_age_hours: int = 24, db: Session = Depends(get_db)):
+    """
+    Clean up old completed jobs and their files.
+    
+    Args:
+        max_age_hours: Delete jobs older than this many hours (default: 24)
+    """
+    from datetime import timedelta
+    
+    cutoff_time = datetime.utcnow() - timedelta(hours=max_age_hours)
+    
+    # Find old completed jobs
+    old_jobs = db.query(VideoJob).filter(
+        VideoJob.status == JobStatus.COMPLETED,
+        VideoJob.completed_at < cutoff_time
+    ).all()
+    
+    deleted_count = 0
+    files_deleted = 0
+    
+    for job in old_jobs:
+        # Delete associated files
+        files_to_delete = []
+        if job.image_filename:
+            files_to_delete.append(os.path.join(UPLOAD_DIR, job.image_filename))
+        if job.audio_filename:
+            files_to_delete.append(os.path.join(UPLOAD_DIR, job.audio_filename))
+        if job.output_filename:
+            files_to_delete.append(os.path.join(OUTPUT_DIR, job.output_filename))
+        
+        for file_path in files_to_delete:
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    files_deleted += 1
+                    logger.info(f"Cleanup: Deleted file {file_path}")
+            except Exception as e:
+                logger.warning(f"Cleanup: Failed to delete file {file_path}: {e}")
+        
+        # Delete job record
+        db.delete(job)
+        deleted_count += 1
+    
+    db.commit()
+    
+    logger.info(f"Cleanup completed: {deleted_count} jobs deleted, {files_deleted} files removed")
+    
+    return {
+        "message": "Cleanup completed",
+        "jobs_deleted": deleted_count,
+        "files_deleted": files_deleted,
+        "cutoff_time": cutoff_time
+    }
 
 if __name__ == "__main__":
     import uvicorn
