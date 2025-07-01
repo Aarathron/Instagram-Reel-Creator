@@ -119,11 +119,28 @@ def test_runpod_deployment():
         print("🚀 Creating real test data for RunPod...")
         
         # Use real test files for complete video processing test
-        image_path = "test_image.jpg"
-        audio_path = "test_audio.mp3"
+        # Check in current directory and runpod directory
+        possible_image_paths = ["test_image.jpg", "runpod/test_image.jpg", "../test_image.jpg"]
+        possible_audio_paths = ["test_audio.mp3", "runpod/test_audio.mp3", "../test_audio.mp3"]
         
-        if os.path.exists(image_path) and os.path.exists(audio_path):
-            print("✅ Found real test files - testing complete video processing...")
+        image_path = None
+        audio_path = None
+        
+        for path in possible_image_paths:
+            if os.path.exists(path):
+                image_path = path
+                break
+                
+        for path in possible_audio_paths:
+            if os.path.exists(path):
+                audio_path = path
+                break
+        
+        if image_path and audio_path:
+            print(f"✅ Found real test files:")
+            print(f"  - Image: {image_path}")
+            print(f"  - Audio: {audio_path}")
+            print("🎬 Testing complete video processing...")
             
             # Read and encode real test files
             with open(image_path, "rb") as f:
@@ -136,8 +153,8 @@ def test_runpod_deployment():
                 "job_id": "real-video-processing-test",
                 "image_base64": image_base64,
                 "audio_base64": audio_base64,
-                "image_filename": "test_image.jpg",
-                "audio_filename": "test_audio.mp3",
+                "image_filename": os.path.basename(image_path),
+                "audio_filename": os.path.basename(audio_path),
                 "lyrics": "This is a complete test of RunPod video processing using real audio and image files.",
                 "language": "en",
                 "alignment_mode": "even",  # Use even distribution to avoid ElevenLabs dependency
@@ -149,8 +166,9 @@ def test_runpod_deployment():
             
         else:
             print("⚠️ Real test files not found - using test mode instead...")
-            print(f"  Expected: {image_path} and {audio_path}")
-            print("  Add these files to the runpod/ directory for full testing")
+            print(f"  Searched for image in: {possible_image_paths}")
+            print(f"  Searched for audio in: {possible_audio_paths}")
+            print("  Add these files to test full video processing")
             
             # Fallback to test mode
             test_job_input = {
