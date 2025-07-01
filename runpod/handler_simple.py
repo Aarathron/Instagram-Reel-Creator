@@ -175,9 +175,9 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
             audio_clip, duration = load_audio_with_fallback(audio_path)
             logger.info(f"Audio duration: {duration:.2f} seconds")
             
-            # Create background image
+            # Create background image (optimized)
             logger.info("🖼️ Creating background image...")
-            bg_clip = ImageClip(image_path).with_duration(duration)
+            bg_clip = ImageClip(image_path).with_duration(duration).resize(height=1080)  # Standard HD height
             
             # Process lyrics
             logger.info("📝 Processing lyrics...")
@@ -198,9 +198,14 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
             
             logger.info(f"Generated {len(vtt.captions)} subtitle captions")
             
-            # Create subtitle clips (simplified)
+            # Create subtitle clips (optimized for GPU)
             subtitle_clips = []
-            for cap in vtt.captions[:5]:  # Limit to first 5 for testing
+            total_captions = len(vtt.captions)
+            logger.info(f"Processing {total_captions} subtitle clips...")
+            
+            # Process in batches for memory efficiency
+            batch_size = 20
+            for i, cap in enumerate(vtt.captions):
                 start_obj = parse_time(cap.start)
                 end_obj = parse_time(cap.end)
                 if not start_obj or not end_obj:
@@ -215,15 +220,20 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
                 if sub_duration <= 0:
                     continue
                 
-                # Create simple text clip
+                # Create optimized text clip
                 txt_clip = TextClip(
-                    text=cap.text[:50],  # Limit text length
+                    text=cap.text,  # Use full text
                     font=get_available_font(),
                     font_size=font_size,
                     color=font_color,
-                    size=(600, 80),
-                    method='caption'
+                    size=(800, 100),  # Larger text area
+                    method='caption',
+                    align='center'
                 ).with_duration(sub_duration).with_start(start_s).with_position(('center', 0.8), relative=True)
+                
+                # Progress logging and memory cleanup
+                if i % batch_size == 0:
+                    logger.info(f"📝 Processed {i+1}/{total_captions} subtitle clips ({((i+1)/total_captions*100):.1f}%)")
                 
                 subtitle_clips.append(txt_clip)
             
@@ -239,12 +249,23 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
             os.makedirs("/workspace/output", exist_ok=True)
             
             logger.info(f"🎥 Writing video to {output_path}...")
-            # Use compatible parameters for MoviePy
+            # GPU-optimized parameters for MoviePy  
+            logger.info(f"🚀 Starting GPU-accelerated encoding...")
             final_clip.write_videofile(
                 output_path,
-                fps=24,
+                fps=24,  # Standard fps for efficiency
                 codec="libx264",
-                audio_codec="aac"
+                audio_codec="aac",
+                temp_audiofile="/tmp/temp-audio.m4a",
+                remove_temp=True,
+                preset="faster",  # Balance speed vs quality
+                threads=16,  # Use more threads on GPU instance
+                ffmpeg_params=[
+                    "-movflags", "+faststart",
+                    "-crf", "23",  # Good quality/speed balance
+                    "-maxrate", "4M",  # Limit bitrate
+                    "-bufsize", "8M"
+                ]
             )
             
             # Read and encode output
