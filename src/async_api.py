@@ -159,7 +159,7 @@ async def create_video_job(
     
     logger.info(f"✓ Created job {job.id} and added to queue")
     
-    return JobResponse.from_orm(job)
+    return JobResponse.from_video_job(job)
 
 @app.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job_status(job_id: str, db: Session = Depends(get_db)):
@@ -168,7 +168,7 @@ async def get_job_status(job_id: str, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    return JobResponse.from_orm(job)
+    return JobResponse.from_video_job(job)
 
 @app.get("/jobs/{job_id}/download")
 async def download_video(job_id: str, db: Session = Depends(get_db)):

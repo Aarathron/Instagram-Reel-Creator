@@ -27,9 +27,11 @@ The error `python: can't open file '/app/src/async_api.py': [Errno 2] No such fi
    ```bash
    ELEVENLABS_API_KEY=your_elevenlabs_key_here
    OPENAI_API_KEY=your_openai_key_here  # Optional
-   RUNPOD_API_KEY=your_runpod_key_here  # Optional
-   RUNPOD_ENDPOINT_ID=your_endpoint_id  # Optional
+   RUNPOD_API_KEY=your_runpod_key_here  # For GPU acceleration
+   RUNPOD_ENDPOINT_ID=your_endpoint_id  # For GPU acceleration
    ```
+   
+   **Important**: Both `RUNPOD_API_KEY` and `RUNPOD_ENDPOINT_ID` are required for GPU processing. Without both variables, the worker will default to CPU processing.
 
 3. **Configure Ports:**
    - Main API will be available on port 8002

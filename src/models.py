@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from datetime import datetime
 from enum import Enum
 import uuid
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 
 Base = declarative_base()
@@ -70,8 +70,22 @@ class JobResponse(BaseModel):
     output_filename: Optional[str] = None
     processing_time_seconds: Optional[float] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+    
+    @classmethod
+    def from_video_job(cls, job: 'VideoJob'):
+        """Create JobResponse from VideoJob, mapping id to job_id."""
+        return cls(
+            job_id=job.id,
+            status=job.status,
+            created_at=job.created_at,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            progress_percentage=job.progress_percentage,
+            error_message=job.error_message,
+            output_filename=job.output_filename,
+            processing_time_seconds=job.processing_time_seconds
+        )
 
 # Database setup
 DATABASE_URL = "sqlite:///./jobs.db"
