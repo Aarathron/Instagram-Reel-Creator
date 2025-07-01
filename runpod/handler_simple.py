@@ -227,8 +227,7 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
                     font_size=font_size,
                     color=font_color,
                     size=(800, 100),  # Larger text area
-                    method='caption',
-                    align='center'
+                    method='caption'
                 ).with_duration(sub_duration).with_start(start_s).with_position(('center', 0.8), relative=True)
                 
                 # Progress logging and memory cleanup
