@@ -63,6 +63,8 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
     """
     try:
         logger.info(f"🎬 Processing video job: {job_input.get('job_id', 'unknown')}")
+        logger.info(f"📋 Input keys received: {list(job_input.keys())}")
+        logger.info(f"🔍 Input data preview: {str(job_input)[:500]}...")
         
         # First run a simple test
         if job_input.get("test_mode", False):
@@ -95,20 +97,43 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
                 "job_id": job_input.get("job_id", "unknown")
             }
         
+        # Validate required fields first
+        required_fields = ["image_base64", "audio_base64", "image_filename", "audio_filename", "lyrics"]
+        missing_fields = [field for field in required_fields if field not in job_input]
+        
+        if missing_fields:
+            logger.error(f"❌ Missing required fields: {missing_fields}")
+            logger.error(f"Available fields: {list(job_input.keys())}")
+            return {
+                "status": "failed",
+                "error": f"Missing required fields: {missing_fields}",
+                "available_fields": list(job_input.keys()),
+                "job_id": job_input.get("job_id", "unknown")
+            }
+        
         # Process the video using simplified approach
         with tempfile.TemporaryDirectory() as temp_dir:
             # Decode and save files
-            image_data = base64.b64decode(job_input["image_base64"])
-            image_path = os.path.join(temp_dir, job_input["image_filename"])
-            with open(image_path, "wb") as f:
-                f.write(image_data)
-            
-            audio_data = base64.b64decode(job_input["audio_base64"])
-            audio_path = os.path.join(temp_dir, job_input["audio_filename"])
-            with open(audio_path, "wb") as f:
-                f.write(audio_data)
-            
-            logger.info(f"✅ Files saved: {image_path}, {audio_path}")
+            try:
+                image_data = base64.b64decode(job_input["image_base64"])
+                image_path = os.path.join(temp_dir, job_input["image_filename"])
+                with open(image_path, "wb") as f:
+                    f.write(image_data)
+                
+                audio_data = base64.b64decode(job_input["audio_base64"])
+                audio_path = os.path.join(temp_dir, job_input["audio_filename"])
+                with open(audio_path, "wb") as f:
+                    f.write(audio_data)
+                    
+                logger.info(f"✅ Files decoded and saved: {image_path}, {audio_path}")
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to decode/save files: {e}")
+                return {
+                    "status": "failed", 
+                    "error": f"File decode error: {str(e)}",
+                    "job_id": job_input.get("job_id", "unknown")
+                }
             
             # Extract parameters
             lyrics = job_input["lyrics"]
