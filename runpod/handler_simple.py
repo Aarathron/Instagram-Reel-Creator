@@ -29,10 +29,13 @@ def test_handler(job_input: Dict[str, Any]) -> Dict[str, Any]:
         # Test file operations
         test_message = f"Hello from RunPod GPU! Job ID: {job_id}"
         
-        # Test environment
+        # Test environment and RunPod secrets
+        elevenlabs_key = os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("RUNPOD_SECRET_ELEVENLABS_API_KEY")
+        
         env_info = {
             "CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES"),
-            "ELEVENLABS_API_KEY": "SET" if os.environ.get("ELEVENLABS_API_KEY") else "NOT_SET",
+            "ELEVENLABS_API_KEY": "SET" if elevenlabs_key else "NOT_SET",
+            "RUNPOD_SECRET_CHECK": "SET" if os.environ.get("RUNPOD_SECRET_ELEVENLABS_API_KEY") else "NOT_SET",
             "Python_Version": os.sys.version,
             "Working_Directory": os.getcwd()
         }
@@ -74,6 +77,14 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
             actual_input = job_input
             
         logger.info(f"📋 Actual input keys: {list(actual_input.keys())}")
+        
+        # Set up ElevenLabs API key from RunPod secrets
+        elevenlabs_key = os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("RUNPOD_SECRET_ELEVENLABS_API_KEY")
+        if elevenlabs_key:
+            os.environ["ELEVENLABS_API_KEY"] = elevenlabs_key
+            logger.info("✅ ElevenLabs API key configured from RunPod secrets")
+        else:
+            logger.warning("⚠️ ElevenLabs API key not found in environment or RunPod secrets")
         
         # First run a simple test
         if actual_input.get("test_mode", False):

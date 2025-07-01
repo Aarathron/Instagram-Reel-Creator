@@ -31,6 +31,10 @@ ENV CUDA_VISIBLE_DEVICES=0
 ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 ENV MOVIEPY_TEMP_DIR=/tmp/moviepy
 
+# Ensure RunPod secrets are accessible
+# RunPod automatically exposes secrets as RUNPOD_SECRET_<SECRET_NAME>
+ENV ELEVENLABS_API_KEY=${RUNPOD_SECRET_ELEVENLABS_API_KEY}
+
 # Copy RunPod handlers
 COPY runpod/handler.py .
 COPY runpod/handler_simple.py .
