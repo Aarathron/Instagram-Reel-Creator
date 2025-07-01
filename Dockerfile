@@ -31,5 +31,11 @@ COPY . .
 RUN apt-get update && apt-get install -y --no-install-recommends git-core \
     && rm -rf /var/lib/apt/lists/*
 
-# Command to run the application
-CMD ["python", "src/main.py"]
+# Create directories for uploads and output
+RUN mkdir -p /app/uploads /app/output
+
+# Set proper permissions
+RUN chmod -R 755 /app
+
+# Default command (can be overridden)
+CMD ["python", "src/async_api.py"]

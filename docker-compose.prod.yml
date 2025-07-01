@@ -1,0 +1,47 @@
+version: '3.8'
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+  
+  api:
+    build: .
+    ports:
+      - "8002:8001"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - REDIS_URL=redis://redis:6379
+      - RUNPOD_API_KEY=${RUNPOD_API_KEY}
+      - RUNPOD_ENDPOINT_ID=${RUNPOD_ENDPOINT_ID}
+    depends_on:
+      - redis
+    command: python src/async_api.py
+    volumes:
+      - uploads_data:/app/uploads
+      - output_data:/app/output
+    restart: unless-stopped
+  
+  worker:
+    build: .
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - REDIS_URL=redis://redis:6379
+      - RUNPOD_API_KEY=${RUNPOD_API_KEY}
+      - RUNPOD_ENDPOINT_ID=${RUNPOD_ENDPOINT_ID}
+    depends_on:
+      - redis
+    command: python src/worker.py
+    volumes:
+      - uploads_data:/app/uploads
+      - output_data:/app/output
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  uploads_data:
+  output_data:
