@@ -105,28 +105,36 @@ def test_runpod_deployment():
         print(f"❌ Connection test failed: {e}")
         return
     
-    # Test with sample files (you'll need to provide these)
-    sample_image = "test_image.jpg"
-    sample_audio = "test_audio.mp3"
-    
-    if not os.path.exists(sample_image) or not os.path.exists(sample_audio):
-        print("❌ Sample test files not found")
-        print("Please provide 'test_image.jpg' and 'test_audio.mp3' for testing")
-        print("For now, we'll skip the full video test")
-        return
-    
+    # Create minimal test data using base64 encoded minimal files
     try:
-        print("🚀 Submitting test job to RunPod...")
+        print("🚀 Creating minimal test data for RunPod...")
         
-        result = client.submit_job(
-            endpoint_id=endpoint_id,
-            image_path=sample_image,
-            audio_path=sample_audio,
-            job_id="test-job-123",
-            lyrics="This is a test video with sample lyrics for testing the RunPod deployment.",
-            language="en",
-            alignment_mode="auto"
-        )
+        # Create a minimal 1x1 pixel PNG image (base64)
+        minimal_png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAGA0VaV9QAAAABJRU5ErkJggg=="
+        
+        # Create minimal MP3 header (base64) - this won't be valid for actual processing but tests the pipeline
+        minimal_mp3_base64 = "SUQzAwAAAAAJAAABU1NFTkMAAAAOAAADAAAAAOQDwAA="
+        
+        # Prepare test job
+        test_job_input = {
+            "job_id": "test-job-123",
+            "image_base64": minimal_png_base64,
+            "audio_base64": minimal_mp3_base64,
+            "image_filename": "test.png",
+            "audio_filename": "test.mp3",
+            "lyrics": "This is a test video with sample lyrics for testing the RunPod deployment.",
+            "language": "en",
+            "alignment_mode": "even"  # Use even distribution to avoid ElevenLabs dependency
+        }
+        
+        # Submit directly to RunPod
+        url = f"{client.base_url}/{endpoint_id}/runsync"
+        response = requests.post(url, headers=client.headers, json={"input": test_job_input})
+        
+        if response.status_code == 200:
+            result = response.json()
+        else:
+            raise Exception(f"RunPod API error: {response.status_code} - {response.text}")
         
         print("✅ Job submitted successfully!")
         print(f"Job ID: {result.get('id')}")
