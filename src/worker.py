@@ -16,7 +16,7 @@ from main import (
     parse_time, seconds_to_srt_timestamp, get_available_font,
     load_audio_with_fallback, preprocess_lyrics, align_lyrics_with_scribe
 )
-from models import VideoJob, JobStatus, SessionLocal, get_db
+from models import VideoJob, JobStatus, SessionLocal, get_db, create_tables
 import webvtt
 from moviepy.video.io.VideoFileClip import VideoFileClip
 from moviepy.video.VideoClip import ImageClip, TextClip
@@ -132,7 +132,38 @@ class VideoProcessor:
             
             result = response.json()
             
-            if result.get('status') != 'COMPLETED' or not result.get('output'):
+            # Handle IN_PROGRESS status - poll for completion
+            if result.get('status') == 'IN_PROGRESS':
+                job_id_runpod = result.get('id')
+                logger.info(f"RunPod job {job_id_runpod} in progress, polling for completion...")
+                
+                # Poll for completion
+                poll_url = f"https://api.runpod.ai/v2/{self.runpod_endpoint_id}/status/{job_id_runpod}"
+                max_polls = 60  # 10 minutes max (10 second intervals)
+                
+                for poll_count in range(max_polls):
+                    time.sleep(10)  # Wait 10 seconds between polls
+                    
+                    poll_response = requests.get(poll_url, headers=headers)
+                    if poll_response.status_code == 200:
+                        poll_result = poll_response.json()
+                        
+                        if poll_result.get('status') == 'COMPLETED':
+                            result = poll_result
+                            break
+                        elif poll_result.get('status') == 'FAILED':
+                            raise Exception(f"RunPod job failed during polling: {poll_result}")
+                        
+                        # Update progress during polling
+                        progress = 50 + (poll_count * 30 // max_polls)  # 50-80% during polling
+                        self.update_job_progress(job_id, JobStatus.PROCESSING, progress)
+                    
+                    logger.info(f"Polling RunPod job {job_id_runpod}... ({poll_count + 1}/{max_polls})")
+                
+                if result.get('status') != 'COMPLETED':
+                    raise Exception(f"RunPod job timed out or failed: {result}")
+            
+            elif result.get('status') != 'COMPLETED' or not result.get('output'):
                 raise Exception(f"RunPod job failed: {result}")
             
             output = result['output']
@@ -385,6 +416,10 @@ class VideoProcessor:
 
 def run_worker():
     """Main worker loop - processes jobs from Redis queue."""
+    # Ensure database tables exist
+    create_tables()
+    logger.info("Database tables initialized")
+    
     processor = VideoProcessor()
     logger.info(f"Starting worker {processor.worker_id}")
     
