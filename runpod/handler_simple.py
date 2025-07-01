@@ -177,7 +177,7 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
             
             # Create background image (optimized)
             logger.info("🖼️ Creating background image...")
-            bg_clip = ImageClip(image_path).with_duration(duration).resize(height=1080)  # Standard HD height
+            bg_clip = ImageClip(image_path).with_duration(duration).resized(height=1080)  # Standard HD height
             
             # Process lyrics
             logger.info("📝 Processing lyrics...")
