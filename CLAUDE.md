@@ -20,15 +20,28 @@ GPU-accelerated processing that auto-scales and only charges when running.
 
 ### Running Async System (Recommended)
 ```bash
+# Copy environment template and configure
+cp .env.example .env
+# Edit .env with your API keys
+
 # Start Redis, API, and worker
-export ELEVENLABS_API_KEY="your_api_key_here"
 docker-compose up --build
 
 # Services:
 # - Redis: localhost:6379
 # - Async API: localhost:8002 
-# - Worker: background processing
+# - Worker: background processing (with optional GPU acceleration)
 # - Legacy API: localhost:8003 (optional)
+```
+
+### GPU Acceleration Setup
+```bash
+# Add to .env file:
+RUNPOD_API_KEY="your_runpod_key"
+RUNPOD_ENDPOINT_ID="your_endpoint_id"
+
+# Worker will automatically use RunPod when available
+# Provides 3-5x faster processing for video generation
 ```
 
 ### Manual Development

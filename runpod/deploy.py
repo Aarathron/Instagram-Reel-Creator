@@ -189,35 +189,70 @@ def test_runpod_deployment():
                 "message": "Testing RunPod connection"
             }
         
-        # Submit directly to RunPod
+        # Submit to RunPod with proper timeout handling
         url = f"{client.base_url}/{endpoint_id}/runsync"
-        response = requests.post(url, headers=client.headers, json={"input": test_job_input})
+        print(f"🚀 Submitting job to RunPod (this may take several minutes)...")
+        
+        # Set a long timeout for video processing
+        import time
+        start_time = time.time()
+        
+        try:
+            response = requests.post(
+                url, 
+                headers=client.headers, 
+                json={"input": test_job_input},
+                timeout=900  # 15 minute timeout
+            )
+        except requests.exceptions.Timeout:
+            print("⏰ Request timed out - job may still be processing")
+            print("Try checking RunPod dashboard or increase timeout")
+            return
         
         if response.status_code == 200:
             result = response.json()
         else:
             raise Exception(f"RunPod API error: {response.status_code} - {response.text}")
         
-        print("✅ Job submitted successfully!")
+        elapsed_time = time.time() - start_time
+        print(f"✅ Job completed in {elapsed_time:.1f} seconds!")
         print(f"Job ID: {result.get('id')}")
         print(f"Status: {result.get('status')}")
         
-        # Debug: Show what RunPod actually processed
-        if result.get("output"):
+        # Handle different status outcomes
+        if result.get('status') == 'COMPLETED' and result.get("output"):
             output = result["output"]
-            if "job_id" in output:
-                print(f"🔍 Processed job ID: {output['job_id']}")
-            if "test_real_files" in output:
-                print("✅ RunPod processed real files!")
+            
+            if output.get("status") == "completed":
+                print("🎉 Video processing completed successfully!")
+                
+                if "job_id" in output:
+                    print(f"🔍 Processed job ID: {output['job_id']}")
+                if "test_real_files" in output:
+                    print("✅ RunPod processed real files!")
+                
+                if output.get("video_base64"):
+                    # Save the output video
+                    video_data = base64.b64decode(output["video_base64"])
+                    with open("runpod_test_output.mp4", "wb") as f:
+                        f.write(video_data)
+                    print(f"✅ Output video saved as 'runpod_test_output.mp4' ({len(video_data)} bytes)")
+                else:
+                    print("⚠️ No video data in response")
+                    
+            elif output.get("status") == "failed":
+                print(f"❌ Video processing failed: {output.get('error')}")
+                if output.get("traceback"):
+                    print(f"Traceback: {output['traceback']}")
             else:
-                print("⚠️ RunPod processed test/cached data")
-        
-        if result.get("output") and result["output"].get("video_base64"):
-            # Save the output video
-            video_data = base64.b64decode(result["output"]["video_base64"])
-            with open("runpod_test_output.mp4", "wb") as f:
-                f.write(video_data)
-            print("✅ Output video saved as 'runpod_test_output.mp4'")
+                print(f"⚠️ Unexpected output status: {output.get('status')}")
+                
+        elif result.get('status') == 'IN_PROGRESS':
+            print("⏳ Job is still processing - this shouldn't happen with runsync")
+            print("Check RunPod dashboard for job status")
+        else:
+            print(f"⚠️ Unexpected job status: {result.get('status')}")
+            print(f"Full result: {result}")
         
     except Exception as e:
         print(f"❌ Test failed: {e}")

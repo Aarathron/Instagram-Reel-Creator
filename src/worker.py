@@ -3,9 +3,11 @@ import json
 import logging
 import time
 import tempfile
+import base64
 from datetime import datetime
 from typing import Optional
 import redis
+import requests
 from sqlalchemy.orm import Session
 
 # Import the original video processing logic
@@ -37,6 +39,16 @@ class VideoProcessor:
     def __init__(self, worker_id: str = None):
         self.worker_id = worker_id or f"worker_{os.getpid()}"
         
+        # RunPod configuration
+        self.runpod_api_key = os.environ.get("RUNPOD_API_KEY")
+        self.runpod_endpoint_id = os.environ.get("RUNPOD_ENDPOINT_ID")
+        self.use_runpod = bool(self.runpod_api_key and self.runpod_endpoint_id)
+        
+        if self.use_runpod:
+            logger.info(f"🚀 RunPod GPU acceleration enabled (endpoint: {self.runpod_endpoint_id})")
+        else:
+            logger.info("💻 Using local CPU processing")
+        
     def update_job_progress(self, job_id: str, status: JobStatus, progress: int = 0, error_message: str = None):
         """Update job status and progress in database."""
         db = SessionLocal()
@@ -64,12 +76,102 @@ class VideoProcessor:
         finally:
             db.close()
     
-    def process_video_job(self, job_data: dict) -> bool:
-        """Process a single video job."""
+    def process_video_runpod(self, job_data: dict) -> bool:
+        """Process video job using RunPod GPU acceleration."""
         job_id = job_data["job_id"]
         
         try:
-            logger.info(f"Starting job {job_id}")
+            logger.info(f"🚀 Processing job {job_id} with RunPod GPU")
+            self.update_job_progress(job_id, JobStatus.PROCESSING, 10)
+            
+            # Encode files as base64
+            with open(job_data["image_path"], "rb") as f:
+                image_base64 = base64.b64encode(f.read()).decode()
+            
+            with open(job_data["audio_path"], "rb") as f:
+                audio_base64 = base64.b64encode(f.read()).decode()
+            
+            # Prepare RunPod job input
+            runpod_input = {
+                "job_id": job_id,
+                "image_base64": image_base64,
+                "audio_base64": audio_base64,
+                "image_filename": os.path.basename(job_data["image_path"]),
+                "audio_filename": os.path.basename(job_data["audio_path"]),
+                "lyrics": job_data["lyrics"],
+                "language": job_data.get("language", "en"),
+                "font_size": job_data.get("font_size", 45),
+                "font_color": job_data.get("font_color", "yellow"),
+                "words_per_group": job_data.get("words_per_group", 3),
+                "timing_offset": job_data.get("timing_offset", 0.0),
+                "min_duration": job_data.get("min_duration", 1.0),
+                "alignment_mode": job_data.get("alignment_mode", "auto"),
+                "debug_mode": job_data.get("debug_mode", False)
+            }
+            
+            self.update_job_progress(job_id, JobStatus.PROCESSING, 30)
+            
+            # Submit to RunPod
+            headers = {
+                "Authorization": f"Bearer {self.runpod_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            url = f"https://api.runpod.ai/v2/{self.runpod_endpoint_id}/runsync"
+            logger.info(f"Submitting to RunPod: {url}")
+            
+            response = requests.post(
+                url,
+                headers=headers,
+                json={"input": runpod_input},
+                timeout=900  # 15 minute timeout
+            )
+            
+            if response.status_code != 200:
+                raise Exception(f"RunPod API error: {response.status_code} - {response.text}")
+            
+            result = response.json()
+            
+            if result.get('status') != 'COMPLETED' or not result.get('output'):
+                raise Exception(f"RunPod job failed: {result}")
+            
+            output = result['output']
+            
+            if output.get('status') != 'completed':
+                error_msg = output.get('error', 'Unknown RunPod error')
+                raise Exception(f"RunPod processing failed: {error_msg}")
+            
+            self.update_job_progress(job_id, JobStatus.PROCESSING, 90)
+            
+            # Decode and save video
+            if not output.get('video_base64'):
+                raise Exception("No video data returned from RunPod")
+            
+            video_data = base64.b64decode(output['video_base64'])
+            output_path = os.path.join(OUTPUT_DIR, f"{job_id}.mp4")
+            
+            with open(output_path, "wb") as f:
+                f.write(video_data)
+            
+            logger.info(f"✅ RunPod job {job_id} completed: {output_path}")
+            self.update_job_progress(job_id, JobStatus.COMPLETED, 100)
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ RunPod job {job_id} failed: {e}")
+            self.update_job_progress(job_id, JobStatus.FAILED, 0, str(e))
+            return False
+    
+    def process_video_job(self, job_data: dict) -> bool:
+        """Process a single video job (with GPU acceleration if available)."""
+        job_id = job_data["job_id"]
+        
+        # Use RunPod if available, otherwise fall back to local processing
+        if self.use_runpod:
+            return self.process_video_runpod(job_data)
+        
+        try:
+            logger.info(f"💻 Processing job {job_id} locally")
             self.update_job_progress(job_id, JobStatus.PROCESSING, 10)
             
             # Extract parameters
