@@ -1,3 +1,4 @@
+import os
 from sqlalchemy import Column, String, DateTime, Float, Integer, Text, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
