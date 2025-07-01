@@ -239,13 +239,12 @@ def process_video_job(job_input: Dict[str, Any]) -> Dict[str, Any]:
             os.makedirs("/workspace/output", exist_ok=True)
             
             logger.info(f"🎥 Writing video to {output_path}...")
+            # Use compatible parameters for MoviePy
             final_clip.write_videofile(
                 output_path,
                 fps=24,
                 codec="libx264",
-                audio_codec="aac",
-                verbose=False,
-                logger=None
+                audio_codec="aac"
             )
             
             # Read and encode output
