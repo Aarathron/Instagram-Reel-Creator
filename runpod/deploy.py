@@ -129,11 +129,13 @@ def test_runpod_deployment():
         for path in possible_image_paths:
             if os.path.exists(path):
                 image_path = path
+                print(f"📁 Found image at: {os.path.abspath(path)}")
                 break
                 
         for path in possible_audio_paths:
             if os.path.exists(path):
                 audio_path = path
+                print(f"📁 Found audio at: {os.path.abspath(path)}")
                 break
         
         if image_path and audio_path:
@@ -197,7 +199,6 @@ def test_runpod_deployment():
         
         if result.get("output") and result["output"].get("video_base64"):
             # Save the output video
-            import base64
             video_data = base64.b64decode(result["output"]["video_base64"])
             with open("runpod_test_output.mp4", "wb") as f:
                 f.write(video_data)
