@@ -287,6 +287,70 @@ async def health_check():
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=503, detail="Service unhealthy")
 
+@app.get("/admin/debug/{job_id}")
+async def debug_job_files(job_id: str, db: Session = Depends(get_db)):
+    """Debug endpoint to check job files and status."""
+    job = db.query(VideoJob).filter(VideoJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    debug_info = {
+        "job_id": job.id,
+        "status": job.status,
+        "output_filename": job.output_filename,
+        "files_check": {}
+    }
+    
+    # Check if files exist
+    if job.image_filename:
+        image_path = os.path.join(UPLOAD_DIR, job.image_filename)
+        debug_info["files_check"]["image"] = {
+            "filename": job.image_filename,
+            "path": image_path,
+            "exists": os.path.exists(image_path)
+        }
+    
+    if job.audio_filename:
+        audio_path = os.path.join(UPLOAD_DIR, job.audio_filename)
+        debug_info["files_check"]["audio"] = {
+            "filename": job.audio_filename,
+            "path": audio_path,
+            "exists": os.path.exists(audio_path)
+        }
+    
+    if job.output_filename:
+        output_path = os.path.join(OUTPUT_DIR, job.output_filename)
+        debug_info["files_check"]["output"] = {
+            "filename": job.output_filename,
+            "path": output_path,
+            "exists": os.path.exists(output_path)
+        }
+        
+        # Try alternative filename patterns
+        alt_patterns = [
+            f"{job_id}.mp4",
+            f"output_{job_id}.mp4",
+            f"video_{job_id}.mp4"
+        ]
+        
+        debug_info["files_check"]["alternatives"] = []
+        for pattern in alt_patterns:
+            alt_path = os.path.join(OUTPUT_DIR, pattern)
+            debug_info["files_check"]["alternatives"].append({
+                "filename": pattern,
+                "path": alt_path,
+                "exists": os.path.exists(alt_path)
+            })
+    
+    # List all files in output directory
+    try:
+        output_files = os.listdir(OUTPUT_DIR) if os.path.exists(OUTPUT_DIR) else []
+        debug_info["output_directory_contents"] = output_files
+    except Exception as e:
+        debug_info["output_directory_error"] = str(e)
+    
+    return debug_info
+
 @app.post("/admin/cleanup")
 async def cleanup_old_jobs(max_age_hours: int = 24, db: Session = Depends(get_db)):
     """

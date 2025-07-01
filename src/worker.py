@@ -179,10 +179,22 @@ class VideoProcessor:
                 raise Exception("No video data returned from RunPod")
             
             video_data = base64.b64decode(output['video_base64'])
-            output_path = os.path.join(OUTPUT_DIR, f"{job_id}.mp4")
+            output_filename = f"{job_id}.mp4"
+            output_path = os.path.join(OUTPUT_DIR, output_filename)
             
             with open(output_path, "wb") as f:
                 f.write(video_data)
+            
+            # Update job record with output filename
+            db = SessionLocal()
+            try:
+                job = db.query(VideoJob).filter(VideoJob.id == job_id).first()
+                if job:
+                    job.output_filename = output_filename
+                    db.commit()
+                    logger.info(f"Updated job {job_id} with output filename: {output_filename}")
+            finally:
+                db.close()
             
             logger.info(f"✅ RunPod job {job_id} completed: {output_path}")
             self.update_job_progress(job_id, JobStatus.COMPLETED, 100)
