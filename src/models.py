@@ -88,7 +88,9 @@ class JobResponse(BaseModel):
         )
 
 # Database setup
-DATABASE_URL = "sqlite:///./jobs.db"
+# Use shared volume in production, local file in development
+DATABASE_DIR = os.environ.get("DATABASE_DIR", ".")
+DATABASE_URL = f"sqlite:///{DATABASE_DIR}/jobs.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

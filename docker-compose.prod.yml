@@ -17,12 +17,14 @@ services:
       - REDIS_URL=redis://redis:6379
       - RUNPOD_API_KEY=${RUNPOD_API_KEY}
       - RUNPOD_ENDPOINT_ID=${RUNPOD_ENDPOINT_ID}
+      - DATABASE_DIR=/app/data
     depends_on:
       - redis
     command: python src/async_api.py
     volumes:
       - uploads_data:/app/uploads
       - output_data:/app/output
+      - database_data:/app/data
     restart: unless-stopped
   
   worker:
@@ -33,15 +35,18 @@ services:
       - REDIS_URL=redis://redis:6379
       - RUNPOD_API_KEY=${RUNPOD_API_KEY}
       - RUNPOD_ENDPOINT_ID=${RUNPOD_ENDPOINT_ID}
+      - DATABASE_DIR=/app/data
     depends_on:
       - redis
     command: python src/worker.py
     volumes:
       - uploads_data:/app/uploads
       - output_data:/app/output
+      - database_data:/app/data
     restart: unless-stopped
 
 volumes:
   redis_data:
   uploads_data:
   output_data:
+  database_data:
