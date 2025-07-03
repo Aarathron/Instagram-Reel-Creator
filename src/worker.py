@@ -274,7 +274,8 @@ class VideoProcessor:
                     audio_path,
                     lyrics,
                     language=language,
-                    alignment_mode=alignment_mode
+                    alignment_mode=alignment_mode,
+                    words_per_group=words_per_group
                 )
             
             logger.info(f"Generated {len(vtt.captions)} subtitle captions")

@@ -375,13 +375,14 @@ def transcribe_audio_with_elevenlabs(
             raise ValueError(f"Failed to transcribe audio with ElevenLabs: {str(e)}")
 
 
-def elevenlabs_to_webvtt(elevenlabs_response: dict, transliterate: bool = True) -> webvtt.WebVTT:
+def elevenlabs_to_webvtt(elevenlabs_response: dict, transliterate: bool = False, words_per_group: int = 5) -> webvtt.WebVTT:
     """
     Convert ElevenLabs Scribe API response to WebVTT format.
     
     Args:
         elevenlabs_response: Response from ElevenLabs Scribe API
-        transliterate: Whether to transliterate non-Latin scripts to Latin
+        transliterate: Whether to transliterate non-Latin scripts to Latin (disabled by default)
+        words_per_group: Maximum number of words per caption (default 5)
         
     Returns:
         WebVTT object with all captions
@@ -391,65 +392,44 @@ def elevenlabs_to_webvtt(elevenlabs_response: dict, transliterate: bool = True) 
     # Extract all words (except spacing) with their timestamps
     words = [w for w in elevenlabs_response.get("words", []) if w.get("type") == "word"]
     
-    # Skip filtering organizational texts for direct transcription to preserve more of the transcription
-    # We want to keep as much of the ElevenLabs transcription as possible
+    if not words:
+        return vtt
     
-    # Group words into sentences based on timing gaps and punctuation
-    sentences = []
-    current_sentence = []
+    # Group words into small chunks based on words_per_group
+    word_groups = []
+    for i in range(0, len(words), words_per_group):
+        group = words[i:i + words_per_group]
+        word_groups.append(group)
     
-    for i, word in enumerate(words):
-        current_sentence.append(word)
-        
-        # Check if this word ends with punctuation
-        text = word.get("text", "")
-        if text.endswith((".", "!", "?", ",", ":", ";")) or i == len(words) - 1:
-            # End of sentence
-            if current_sentence:
-                sentences.append(current_sentence)
-                current_sentence = []
-        
-        # Also check for timing gaps (if more than 0.7 second gap to next word)
-        elif i < len(words) - 1:
-            current_end = word.get("end", 0)
-            next_start = words[i+1].get("start", 0)
-            if next_start - current_end > 0.7:
-                # Gap between words, end the sentence
-                if current_sentence:
-                    sentences.append(current_sentence)
-                    current_sentence = []
-    
-    # Add the last sentence if it's not empty
-    if current_sentence:
-        sentences.append(current_sentence)
-    
-    # Convert each sentence to a WebVTT caption
-    for sentence in sentences:
-        if not sentence:
+    # Convert each word group to a WebVTT caption
+    for group in word_groups:
+        if not group:
             continue
             
-        # Get start and end times for the sentence
-        start_time = sentence[0].get("start", 0)
-        end_time = sentence[-1].get("end", 0)
+        # Get start and end times for the group
+        start_time = group[0].get("start", 0)
+        end_time = group[-1].get("end", 0)
         
         # Combine the text
-        text = " ".join(word.get("text", "") for word in sentence)
+        text = " ".join(word.get("text", "") for word in group)
         
-        # Apply transliteration if needed
-        if transliterate:
-            # Check if the text contains Devanagari (or other non-Latin scripts)
-            if any(ord(c) > 127 for c in text):
+        # Skip transliteration to preserve original script (Hindi/Devanagari)
+        # Modern video players support Unicode rendering
+        if transliterate and any(ord(c) > 127 for c in text):
+            try:
                 text = transliterate_hindi_to_latin(text)
+            except Exception as e:
+                logger.warning(f"Transliteration failed, keeping original text: {e}")
         
         # Create the caption
         start_str = seconds_to_srt_timestamp(start_time)
         end_str = seconds_to_srt_timestamp(end_time)
         
-        # Ensure minimum duration (1 second)
+        # Ensure minimum duration (0.5 seconds for shorter groups)
         start_seconds = parse_seconds_from_timestamp(start_str)
         end_seconds = parse_seconds_from_timestamp(end_str)
-        if end_seconds - start_seconds < 1.0:
-            end_seconds = start_seconds + 1.0
+        if end_seconds - start_seconds < 0.5:
+            end_seconds = start_seconds + 0.5
             end_str = seconds_to_srt_timestamp(end_seconds)
         
         vtt.captions.append(webvtt.Caption(start_str, end_str, text))
@@ -791,7 +771,8 @@ def transcribe_and_align_lyrics(
     audio_path: str,
     lyrics_text: str,
     language: Optional[str] = None,
-    alignment_mode: str = 'auto'
+    alignment_mode: str = 'auto',
+    words_per_group: int = 5
 ) -> webvtt.WebVTT:
     """
     1) If ElevenLabs API key is available:
@@ -839,7 +820,7 @@ def transcribe_and_align_lyrics(
                 # If mode is 'elevenlabs', use ElevenLabs transcription directly
                 if alignment_mode == 'elevenlabs':
                     logger.info("Using ElevenLabs transcription directly as specified by alignment_mode='elevenlabs'")
-                    vtt = elevenlabs_to_webvtt(elevenlabs_response, transliterate=False)
+                    vtt = elevenlabs_to_webvtt(elevenlabs_response, transliterate=False, words_per_group=words_per_group)
                     logger.info(f"✓ Created WebVTT with {len(vtt.captions)} captions using ElevenLabs transcription")
                     return vtt
                 
@@ -1109,7 +1090,8 @@ async def create_video(
                     audio_path,
                     lyrics,
                     language=language,
-                    alignment_mode=alignment_mode
+                    alignment_mode=alignment_mode,
+                    words_per_group=words_per_group
                 )
             
             logger.info(f"✓ Generated subtitles with {len(vtt.captions)} captions")
